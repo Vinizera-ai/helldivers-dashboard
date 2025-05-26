@@ -100,4 +100,5 @@ Thumbs.db
 
 # Temporary folders
 tmp/
-temp/
+temp/frontend/node_modules/ 
+backend/node_modules/ 
