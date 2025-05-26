@@ -11,14 +11,18 @@ const GalaxyMap3D = ({
   fullscreen = false, 
   onMaximize, 
   showControls = false,
-  refreshKey = 0 // Nova prop para forçar atualizações
+  refreshKey = 0
 }) => {
   const mountRef = useRef(null);
   const sceneRef = useRef(null);
   const rendererRef = useRef(null);
+  const cameraRef = useRef(null);
   const planetMeshesRef = useRef([]);
   const planetsGroupRef = useRef(null);
+  const animationIdRef = useRef(null);
+  const isInitializedRef = useRef(false);
   
+  // Estados
   const [selectedPlanet, setSelectedPlanet] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -26,8 +30,19 @@ const GalaxyMap3D = ({
   const [allPlanets, setAllPlanets] = useState([]);
   const [showPlanetNames, setShowPlanetNames] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [factionUpdateTrigger, setFactionUpdateTrigger] = useState(0);
 
-  // Função para buscar planetas otimizada
+  // Controles de câmera persistentes
+  const cameraControlsRef = useRef({
+    mouseDown: false,
+    lastMouse: { x: 0, y: 0 },
+    theta: 0,
+    phi: Math.PI / 4,
+    distance: 150,
+    autoRotate: false
+  });
+
+  // Função para buscar planetas (SEM recriar a cena)
   const fetchAllPlanets = useCallback(async (isUpdate = false) => {
     console.log(`📡 ${isUpdate ? 'Atualizando' : 'Carregando'} planetas...`);
     
@@ -38,51 +53,35 @@ const GalaxyMap3D = ({
     }
     
     try {
-      // 1. TESTAR BACKEND
-      console.log('🔗 Testando backend...');
+      // Testar backend
       await axios.get('http://localhost:5000/', { timeout: 3000 });
-      console.log('✅ Backend respondendo!');
       
-      // 2. BUSCAR PLANETAS
-      console.log('📡 Buscando planetas...');
+      // Buscar planetas
       const planetsResponse = await axios.get('http://localhost:5000/api/planets', { 
         timeout: 20000
       });
       
-      console.log('📊 Resposta recebida:', planetsResponse.data);
-      
-      // 3. EXTRAIR DADOS
+      // Extrair dados
       let planetsData = [];
-      
-      if (planetsResponse.data) {
-        if (planetsResponse.data.planets && Array.isArray(planetsResponse.data.planets)) {
-          planetsData = planetsResponse.data.planets;
-          console.log(`✅ ${planetsData.length} planetas extraídos do campo .planets`);
-        } else if (Array.isArray(planetsResponse.data)) {
-          planetsData = planetsResponse.data;
-          console.log(`✅ ${planetsData.length} planetas (array direto)`);
-        } else {
-          throw new Error('Formato de resposta não reconhecido');
-        }
+      if (planetsResponse.data?.planets && Array.isArray(planetsResponse.data.planets)) {
+        planetsData = planetsResponse.data.planets;
+      } else if (Array.isArray(planetsResponse.data)) {
+        planetsData = planetsResponse.data;
       } else {
-        throw new Error('Resposta vazia do backend');
+        throw new Error('Formato de resposta não reconhecido');
       }
       
-      // 4. VERIFICAR DADOS
       if (!planetsData || planetsData.length === 0) {
         throw new Error('Array de planetas vazio');
       }
       
-      console.log(`🎉 ${planetsData.length} planetas válidos!`);
-      
-      // 5. USAR DADOS DE GUERRA JÁ DISPONÍVEIS
+      // Usar dados de guerra já disponíveis
       let planetStatusData = [];
-      if (warStatus && warStatus.planetStatus) {
+      if (warStatus?.planetStatus) {
         planetStatusData = warStatus.planetStatus;
-        console.log(`📊 Usando dados de guerra: ${planetStatusData.length} planetas`);
       }
       
-      // 6. PROCESSAR PLANETAS
+      // Processar planetas
       const enrichedPlanets = planetsData.map((planet, arrayIndex) => {
         const planetIndex = planet.index !== undefined ? planet.index : arrayIndex;
         const warData = planetStatusData.find(p => p.index === planetIndex) || {};
@@ -123,7 +122,7 @@ const GalaxyMap3D = ({
         };
       });
       
-      // 7. GARANTIR SUPER EARTH
+      // Garantir Super Earth
       const superEarth = enrichedPlanets.find(p => p.name === "Super Earth");
       if (superEarth) {
         superEarth.position = { x: 0, y: 0, z: 0 };
@@ -134,12 +133,12 @@ const GalaxyMap3D = ({
       
       console.log(`🎉 SUCESSO! ${enrichedPlanets.length} planetas ${isUpdate ? 'atualizados' : 'carregados'}`);
       
-      // 8. DEFINIR ESTADO
+      // Atualizar estado
       setAllPlanets(enrichedPlanets);
       setError(null);
       
-      // 9. ATUALIZAR MAPA 3D SE JÁ EXISTE
-      if (isUpdate && sceneRef.current && planetMeshesRef.current.length > 0) {
+      // Se é uma atualização e a cena já existe, atualizar apenas os meshes
+      if (isUpdate && isInitializedRef.current && planetMeshesRef.current.length > 0) {
         updatePlanetMeshes(enrichedPlanets);
       }
       
@@ -147,17 +146,31 @@ const GalaxyMap3D = ({
       console.error('❌ ERRO:', err.message);
       
       if (!isUpdate) {
-        console.log('🚨 Carregando planetas de emergência...');
+        console.log('🚨 Carregando planetas de emergência com distribuição realista...');
         const emergencyPlanets = generateEmergencyPlanets();
         setAllPlanets(emergencyPlanets);
+        
+        // Forçar atualização da contagem de facções para planetas de emergência
+        setTimeout(() => {
+          const event = new CustomEvent('factionUpdate', { 
+            detail: { 
+              factionCount: {
+                'Super Earth': emergencyPlanets.filter(p => p.faction === 'Super Earth').length,
+                'Automatons': emergencyPlanets.filter(p => p.faction === 'Automatons').length,
+                'Terminids': emergencyPlanets.filter(p => p.faction === 'Terminids').length
+              }
+            } 
+          });
+          window.dispatchEvent(event);
+        }, 100);
       }
       
       if (err.message.includes('timeout')) {
-        setError('API timeout - Usando planetas de emergência');
+        setError('API timeout');
       } else if (err.message.includes('Network Error')) {
-        setError('Backend offline - Inicie: npm run dev na pasta backend');
+        setError('Backend offline');
       } else {
-        setError('Erro na API - Usando planetas de emergência');
+        setError('Erro na API');
       }
     } finally {
       setIsLoading(false);
@@ -165,37 +178,124 @@ const GalaxyMap3D = ({
     }
   }, [campaigns, warStatus]);
 
-  // Função para atualizar meshes dos planetas sem recriar tudo
+  // Mapeamento de facções numéricas para nomes
+  const mapFactionIdToName = (factionId) => {
+    // Converter para string caso seja número
+    const id = String(factionId).toLowerCase();
+    
+    switch(id) {
+      case '1':
+      case 'humans':
+      case 'super earth':
+      case 'super_earth':
+        return 'Super Earth';
+      case '2': 
+      case 'bugs':
+      case 'terminids':
+        return 'Terminids';
+      case '3':
+      case 'bots':
+      case 'cyborgs':
+      case 'automatons':
+        return 'Automatons';
+      default:
+        // Se já é um nome válido, retornar como está
+        if (['Super Earth', 'Terminids', 'Automatons'].includes(factionId)) {
+          return factionId;
+        }
+        // Padrão para IDs desconhecidos
+        console.log(`⚠️ Facção desconhecida: ${factionId}, usando Super Earth como padrão`);
+        return 'Super Earth';
+    }
+  };
   const updatePlanetMeshes = useCallback((updatedPlanets) => {
     if (!planetMeshesRef.current || planetMeshesRef.current.length === 0) return;
     
-    console.log('🔄 Atualizando meshes dos planetas...');
+    console.log('🔄 Atualizando meshes dos planetas (preservando câmera e cores)...');
+    console.log('📊 Dados dos planetas:', updatedPlanets.slice(0, 3).map(p => ({ 
+      name: p.name, 
+      faction: p.faction, 
+      biome: p.biome?.slug,
+      isActive: p.isActive 
+    })));
     
     planetMeshesRef.current.forEach((mesh, index) => {
       const planetData = updatedPlanets[index];
       if (!planetData) return;
       
       // Atualizar dados do planeta
-      mesh.userData = { planetData };
+      mesh.userData.planetData = planetData;
       
-      // Atualizar cor baseada na facção
-      const newColor = getFactionColor(planetData.faction);
-      mesh.material.color.setHex(newColor);
+      // MANTER a cor original do bioma (não mudar a cor do planeta)
+      // A cor do planeta deve ser baseada no bioma, não na facção
+      const biomeColor = getBiomeColor(planetData.biome);
+      mesh.material.color.setHex(biomeColor);
       
-      // Atualizar anel de atividade
-      if (mesh.userData.activityRing) {
-        mesh.userData.activityRing.material.color.setHex(newColor);
-        mesh.userData.activityRing.visible = planetData.isActive;
+      // Debug: Log das primeiras atualizações
+      if (index < 3) {
+        console.log(`🎨 Planeta ${planetData.name}: bioma=${planetData.biome?.slug}, cor=0x${biomeColor.toString(16)}, facção=${planetData.faction}`);
       }
       
-      // Atualizar atmosfera
+      // Atualizar anel de atividade com cor da facção
+      if (mesh.userData.activityRing) {
+        const factionColor = getFactionColor(planetData.faction);
+        mesh.userData.activityRing.material.color.setHex(factionColor);
+        mesh.userData.activityRing.visible = planetData.isActive;
+        
+        // Atualizar opacidade baseada no status
+        if (planetData.status === 'critical') {
+          mesh.userData.activityRing.material.opacity = 0.9;
+        } else if (planetData.status === 'active') {
+          mesh.userData.activityRing.material.opacity = 0.7;
+        } else {
+          mesh.userData.activityRing.material.opacity = 0.5;
+        }
+      }
+      
+      // Atualizar atmosfera com cor da facção
       if (mesh.userData.atmosphere) {
-        mesh.userData.atmosphere.material.color.setHex(newColor);
-        mesh.userData.atmosphere.material.opacity = planetData.isActive ? 0.15 : 0.05;
+        const factionColor = getFactionColor(planetData.faction);
+        mesh.userData.atmosphere.material.color.setHex(factionColor);
+        
+        // Atualizar opacidade baseada na atividade
+        if (planetData.isActive) {
+          mesh.userData.atmosphere.material.opacity = 0.15;
+        } else if (planetData.faction !== 'Super Earth') {
+          mesh.userData.atmosphere.material.opacity = 0.08;
+        } else {
+          mesh.userData.atmosphere.material.opacity = 0.05;
+        }
+      }
+      
+      // Criar/atualizar indicador de status visual
+      if (planetData.status === 'critical' && !mesh.userData.warningRing) {
+        // Adicionar anel de aviso para planetas críticos
+        const warningGeometry = new THREE.TorusGeometry(mesh.geometry.parameters.radius * 2, 0.1, 8, 100);
+        const warningMaterial = new THREE.MeshBasicMaterial({
+          color: 0xFF0000,
+          transparent: true,
+          opacity: 0.8
+        });
+        const warningRing = new THREE.Mesh(warningGeometry, warningMaterial);
+        warningRing.position.copy(mesh.position);
+        warningRing.rotation.x = Math.PI / 2;
+        
+        if (planetsGroupRef.current) {
+          planetsGroupRef.current.add(warningRing);
+          mesh.userData.warningRing = warningRing;
+        }
+      } else if (planetData.status !== 'critical' && mesh.userData.warningRing) {
+        // Remover anel de aviso se não for mais crítico
+        if (planetsGroupRef.current) {
+          planetsGroupRef.current.remove(mesh.userData.warningRing);
+          mesh.userData.warningRing.geometry.dispose();
+          mesh.userData.warningRing.material.dispose();
+          delete mesh.userData.warningRing;
+        }
       }
     });
     
-    console.log('✅ Meshes atualizados!');
+    console.log('✅ Meshes atualizados sem resetar câmera (cores preservadas)!');
   }, []);
 
   // Função para calcular status do planeta
@@ -209,113 +309,229 @@ const GalaxyMap3D = ({
     return 'peaceful';
   };
 
-  // Função para gerar planetas de emergência
+  // Função para gerar planetas de emergência com distribuição realista
   const generateEmergencyPlanets = () => {
-    return [
+    console.log('🚨 Gerando planetas de emergência com distribuição realista...');
+    
+    const emergencyPlanets = [
+      // Super Earth (sempre azul)
       {
         name: "Super Earth", index: 0, faction: "Super Earth", players: 50000,
         health: 1000000, maxHealth: 1000000, position: { x: 0, y: 0, z: 0 },
         biome: { name: "Homeworld", slug: "homeworld" }, sector: "Sol System",
         status: "safe", isActive: true, liberationPercentage: 100
       },
+      
+      // Planetas controlados por Super Earth
       {
-        name: "Malevelon Creek", index: 1, faction: "Automatons", players: 2500,
+        name: "Tien Kwan", index: 1, faction: "Super Earth", players: 0,
+        health: 1000000, maxHealth: 1000000, position: { x: -25, y: 5, z: -45 },
+        biome: { name: "Swamp", slug: "swamp" }, sector: "Hydra",
+        status: "peaceful", isActive: false, liberationPercentage: 100
+      },
+      {
+        name: "Mort", index: 2, faction: "Super Earth", players: 0,
+        health: 1000000, maxHealth: 1000000, position: { x: 35, y: -10, z: 50 },
+        biome: { name: "Mountain", slug: "mountain" }, sector: "Hydra",
+        status: "peaceful", isActive: false, liberationPercentage: 100
+      },
+      {
+        name: "Cyberstan", index: 3, faction: "Super Earth", players: 0,
+        health: 1000000, maxHealth: 1000000, position: { x: -40, y: 15, z: 25 },
+        biome: { name: "Plains", slug: "plains" }, sector: "Draco",
+        status: "peaceful", isActive: false, liberationPercentage: 100
+      },
+      {
+        name: "Crystal World", index: 4, faction: "Super Earth", players: 0,
+        health: 1000000, maxHealth: 1000000, position: { x: -30, y: -35, z: -40 },
+        biome: { name: "Crystal", slug: "crystal" }, sector: "Lacaille",
+        status: "peaceful", isActive: false, liberationPercentage: 100
+      },
+      
+      // Planetas controlados por Automatons
+      {
+        name: "Malevelon Creek", index: 5, faction: "Automatons", players: 2500,
         health: 750000, maxHealth: 1000000, position: { x: 45, y: 10, z: -30 },
         biome: { name: "Jungle", slug: "jungle" }, sector: "Severin",
         status: "critical", isActive: true, liberationPercentage: 25, defense: true
       },
       {
-        name: "Estanu", index: 2, faction: "Terminids", players: 1800,
+        name: "Draupnir", index: 6, faction: "Automatons", players: 3200,
+        health: 400000, maxHealth: 1000000, position: { x: 60, y: 20, z: 15 },
+        biome: { name: "Desert", slug: "desert" }, sector: "Mirin",
+        status: "contested", isActive: true, liberationPercentage: 60
+      },
+      {
+        name: "Automaton Prime", index: 7, faction: "Automatons", players: 1500,
+        health: 550000, maxHealth: 1000000, position: { x: 55, y: -5, z: -15 },
+        biome: { name: "Wasteland", slug: "wasteland" }, sector: "Ursa",
+        status: "active", isActive: true, liberationPercentage: 45
+      },
+      {
+        name: "Robotic Fortress", index: 8, faction: "Automatons", players: 1800,
+        health: 300000, maxHealth: 1000000, position: { x: 70, y: -25, z: 35 },
+        biome: { name: "Mountain", slug: "mountain" }, sector: "Ursa",
+        status: "critical", isActive: true, liberationPercentage: 70, defense: true
+      },
+      {
+        name: "Steel Valley", index: 9, faction: "Automatons", players: 900,
+        health: 650000, maxHealth: 1000000, position: { x: -60, y: 30, z: -25 },
+        biome: { name: "Canyon", slug: "canyon" }, sector: "Severin",
+        status: "active", isActive: true, liberationPercentage: 35
+      },
+      
+      // Planetas controlados por Terminids
+      {
+        name: "Estanu", index: 10, faction: "Terminids", players: 1800,
         health: 600000, maxHealth: 1000000, position: { x: -35, y: -15, z: 40 },
         biome: { name: "Ice", slug: "ice" }, sector: "Mirin",
         status: "active", isActive: true, liberationPercentage: 40
       },
-      // ... mais planetas de emergência
+      {
+        name: "Hellmire", index: 11, faction: "Terminids", players: 900,
+        health: 800000, maxHealth: 1000000, position: { x: -50, y: -25, z: -20 },
+        biome: { name: "Volcanic", slug: "volcanic" }, sector: "Mirin",
+        status: "contested", isActive: true, liberationPercentage: 20
+      },
+      {
+        name: "Meridia", index: 12, faction: "Terminids", players: 1200,
+        health: 650000, maxHealth: 1000000, position: { x: 20, y: 30, z: -35 },
+        biome: { name: "Ocean", slug: "ocean" }, sector: "Draco",
+        status: "active", isActive: true, liberationPercentage: 35
+      },
+      {
+        name: "Terminid Prime", index: 13, faction: "Terminids", players: 2100,
+        health: 450000, maxHealth: 1000000, position: { x: 40, y: -20, z: 30 },
+        biome: { name: "Forest", slug: "forest" }, sector: "Lacaille",
+        status: "critical", isActive: true, liberationPercentage: 55, defense: true
+      },
+      {
+        name: "Toxic Marsh", index: 14, faction: "Terminids", players: 800,
+        health: 700000, maxHealth: 1000000, position: { x: 25, y: 40, z: -25 },
+        biome: { name: "Toxic", slug: "toxic" }, sector: "Draco",
+        status: "contested", isActive: true, liberationPercentage: 30
+      },
+      {
+        name: "Hive World", index: 15, faction: "Terminids", players: 1500,
+        health: 500000, maxHealth: 1000000, position: { x: -45, y: 25, z: 50 },
+        biome: { name: "Swamp", slug: "swamp" }, sector: "Lacaille",
+        status: "active", isActive: true, liberationPercentage: 45
+      },
+      
+      // Planetas neutros/disputados
+      {
+        name: "Border World Alpha", index: 16, faction: "Super Earth", players: 500,
+        health: 900000, maxHealth: 1000000, position: { x: 15, y: -35, z: -50 },
+        biome: { name: "Tundra", slug: "tundra" }, sector: "Border",
+        status: "contested", isActive: true, liberationPercentage: 85
+      },
+      {
+        name: "Frontier Station", index: 17, faction: "Super Earth", players: 300,
+        health: 950000, maxHealth: 1000000, position: { x: -20, y: 45, z: 15 },
+        biome: { name: "Highland", slug: "highland" }, sector: "Frontier",
+        status: "active", isActive: true, liberationPercentage: 95
+      }
     ];
+    
+    // Log da distribuição
+    const factionCount = {
+      'Super Earth': emergencyPlanets.filter(p => p.faction === 'Super Earth').length,
+      'Automatons': emergencyPlanets.filter(p => p.faction === 'Automatons').length,
+      'Terminids': emergencyPlanets.filter(p => p.faction === 'Terminids').length
+    };
+    
+    console.log('🚨 Planetas de emergência - Distribuição:', factionCount);
+    
+    return emergencyPlanets;
   };
 
-  // Effect para carregar dados iniciais
+  // Effect para carregar dados iniciais APENAS UMA VEZ
   useEffect(() => {
+    console.log('🎯 Carregamento inicial dos planetas...');
+    
+    // Listener para atualizações de facção
+    const handleFactionUpdate = (event) => {
+      console.log('📡 Facções atualizadas via evento:', event.detail.factionCount);
+      // Forçar re-render do componente
+      setFactionUpdateTrigger(prev => prev + 1);
+    };
+    
+    window.addEventListener('factionUpdate', handleFactionUpdate);
+    
     fetchAllPlanets(false);
-  }, []);
+    
+    return () => {
+      window.removeEventListener('factionUpdate', handleFactionUpdate);
+    };
+  }, []); // Dependências vazias = executa apenas uma vez
 
-  // Effect para atualizações baseadas no refreshKey
+  // Effect para atualizações baseadas no refreshKey (SEM recriar cena)
   useEffect(() => {
-    if (refreshKey > 0 && allPlanets.length > 0) {
-      console.log(`🔄 Refresh key mudou: ${refreshKey} - Atualizando dados...`);
+    if (refreshKey > 0 && allPlanets.length > 0 && isInitializedRef.current) {
+      console.log(`🔄 Refresh key mudou: ${refreshKey} - Atualizando dados sem resetar cena...`);
       fetchAllPlanets(true);
     }
-  }, [refreshKey, fetchAllPlanets]);
+  }, [refreshKey]); // Apenas refreshKey como dependência
 
-  // Effect para responder a mudanças nas campanhas
+  // Effect para responder a mudanças nas campanhas (SEM recriar cena)
   useEffect(() => {
-    if (campaigns.length > 0 && allPlanets.length > 0) {
-      console.log('📊 Campanhas mudaram - Atualizando planetas...');
-      // Reprocessar planetas com novos dados de campanha
+    if (campaigns.length > 0 && allPlanets.length > 0 && isInitializedRef.current) {
+      console.log('📊 Campanhas mudaram - Atualizando planetas e facções...');
+      console.log('📊 Campanhas disponíveis:', campaigns.map(c => ({ name: c.name, faction: c.faction, players: c.players })));
+      
       const updatedPlanets = allPlanets.map(planet => {
         const campaignData = campaigns.find(c => 
           c.name === planet.name || c.planetIndex === planet.index
         ) || {};
         
+        // Atualizar facção se a campanha fornece informação mais recente
+        let updatedFaction = planet.faction;
+        if (campaignData.faction && campaignData.faction !== planet.faction) {
+          const mappedOriginal = mapFactionIdToName(planet.faction);
+          const mappedNew = mapFactionIdToName(campaignData.faction);
+          console.log(`🔄 Atualizando facção de ${planet.name}: ${planet.faction} (${mappedOriginal}) → ${campaignData.faction} (${mappedNew})`);
+          updatedFaction = campaignData.faction;
+        }
+        
         return {
           ...planet,
+          faction: updatedFaction,
           liberationPercentage: campaignData.liberationPercentage || campaignData.percentage || planet.liberationPercentage,
           defense: campaignData.defense || campaignData.type === 'Defense' || planet.defense,
           majorOrder: campaignData.majorOrder || planet.majorOrder,
           players: campaignData.players || planet.players,
-          status: calculatePlanetStatus(planet, { players: planet.players }, campaignData)
+          status: calculatePlanetStatus(planet, { players: campaignData.players || planet.players }, campaignData)
         };
       });
+      
+      // Log das mudanças
+      const oldFactionCount = {
+        'Super Earth': allPlanets.filter(p => mapFactionIdToName(p.faction) === 'Super Earth').length,
+        'Automatons': allPlanets.filter(p => mapFactionIdToName(p.faction) === 'Automatons').length,
+        'Terminids': allPlanets.filter(p => mapFactionIdToName(p.faction) === 'Terminids').length
+      };
+      
+      const newFactionCount = {
+        'Super Earth': updatedPlanets.filter(p => mapFactionIdToName(p.faction) === 'Super Earth').length,
+        'Automatons': updatedPlanets.filter(p => mapFactionIdToName(p.faction) === 'Automatons').length,
+        'Terminids': updatedPlanets.filter(p => mapFactionIdToName(p.faction) === 'Terminids').length
+      };
+      
+      console.log('📊 Facções antes (mapeadas):', oldFactionCount);
+      console.log('📊 Facções depois (mapeadas):', newFactionCount);
       
       setAllPlanets(updatedPlanets);
       updatePlanetMeshes(updatedPlanets);
     }
-  }, [campaigns, allPlanets, updatePlanetMeshes]);
+  }, [campaigns]); // Apenas campaigns como dependência
 
-  const getFactionColor = (faction) => {
-    switch(faction) {
-      case 'Super Earth': return 0x00BFFF;
-      case 'Terminids': return 0xFFA500;
-      case 'Automatons': return 0xFF4444;
-      default: return 0x4A90E2;
-    }
-  };
-
-  const getBiomeColor = (biome) => {
-    switch(biome?.slug) {
-      case 'desert': return 0xDEB887;
-      case 'jungle': return 0x228B22;
-      case 'ice': return 0x87CEEB;
-      case 'volcanic': return 0xFF4500;
-      case 'moon': return 0xC0C0C0;
-      case 'swamp': return 0x556B2F;
-      case 'mountain': return 0x8B7355;
-      case 'ocean': return 0x006994;
-      case 'homeworld': return 0x00BFFF;
-      default: return 0x808080;
-    }
-  };
-
-  // Effect principal para inicializar e gerenciar a cena 3D
+  // Effect para INICIALIZAR a cena 3D APENAS UMA VEZ
   useEffect(() => {
-    if (!mountRef.current || allPlanets.length === 0) return;
+    if (!mountRef.current || allPlanets.length === 0 || isInitializedRef.current) return;
 
-    console.log('🎮 Inicializando/Atualizando Galáxia 3D...');
+    console.log('🎮 Inicializando Galáxia 3D (UMA VEZ)...');
 
     try {
-      // Se já existe uma cena, limpar primeiro
-      if (rendererRef.current && mountRef.current.contains(rendererRef.current.domElement)) {
-        mountRef.current.removeChild(rendererRef.current.domElement);
-      }
-
-      // Controles
-      let mouseDown = false;
-      let lastMouse = { x: 0, y: 0 };
-      let theta = 0;
-      let phi = Math.PI / 4;
-      let distance = 150;
-      let autoRotate = false;
-
       // Scene
       const scene = new THREE.Scene();
       sceneRef.current = scene;
@@ -341,11 +557,13 @@ const GalaxyMap3D = ({
         0.1, 
         2000
       );
+      cameraRef.current = camera;
       
       const updateCamera = () => {
-        camera.position.x = Math.cos(phi) * Math.cos(theta) * distance;
-        camera.position.y = Math.sin(phi) * distance;
-        camera.position.z = Math.cos(phi) * Math.sin(theta) * distance;
+        const controls = cameraControlsRef.current;
+        camera.position.x = Math.cos(controls.phi) * Math.cos(controls.theta) * controls.distance;
+        camera.position.y = Math.sin(controls.phi) * controls.distance;
+        camera.position.z = Math.cos(controls.phi) * Math.sin(controls.theta) * controls.distance;
         camera.lookAt(0, 0, 0);
       };
       updateCamera();
@@ -382,15 +600,17 @@ const GalaxyMap3D = ({
 
       // Criar planetas
       const planetMeshes = [];
-      const textSprites = [];
 
       allPlanets.forEach((planet, index) => {
         const radius = planet.name === "Super Earth" ? 4 : 
                       planet.isActive ? 2 : 1.5;
 
         const geometry = new THREE.SphereGeometry(radius, 32, 32);
+        
+        // Cor baseada no BIOMA (não na facção)
+        const biomeColor = getBiomeColor(planet.biome);
         const material = new THREE.MeshPhongMaterial({
-          color: getBiomeColor(planet.biome),
+          color: biomeColor,
           shininess: planet.biome?.slug === 'ocean' ? 100 : 30,
           transparent: true,
           opacity: 0.9
@@ -402,45 +622,70 @@ const GalaxyMap3D = ({
         mesh.castShadow = true;
         mesh.receiveShadow = true;
 
-        // Atmosfera
+        // Atmosfera com cor da FACÇÃO
         if (radius > 2) {
           const atmosphereGeometry = new THREE.SphereGeometry(radius * 1.2, 32, 32);
+          const mappedFaction = mapFactionIdToName(planet.faction);
+          const factionColor = getFactionColor(mappedFaction);
           const atmosphereMaterial = new THREE.MeshBasicMaterial({
-            color: getFactionColor(planet.faction),
+            color: factionColor,
             transparent: true,
-            opacity: 0.1,
+            opacity: planet.isActive ? 0.15 : 0.05,
             side: THREE.BackSide
           });
           const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
           atmosphere.position.copy(mesh.position);
           planetsGroup.add(atmosphere);
           mesh.userData.atmosphere = atmosphere;
+          
+          console.log(`🌫️ Atmosfera criada para ${planet.name}: facção ${planet.faction} → ${mappedFaction}, cor 0x${factionColor.toString(16)}`);
         }
 
-        // Anel de atividade
+        // Anel de atividade com cor da FACÇÃO
         if (planet.isActive && planet.name !== "Super Earth") {
           const ringGeometry = new THREE.TorusGeometry(radius * 1.5, 0.2, 8, 100);
+          const mappedFaction = mapFactionIdToName(planet.faction);
+          const factionColor = getFactionColor(mappedFaction);
           const ringMaterial = new THREE.MeshBasicMaterial({
-            color: getFactionColor(planet.faction),
+            color: factionColor,
             transparent: true,
-            opacity: 0.6
+            opacity: planet.status === 'critical' ? 0.9 : 0.6
           });
           const ring = new THREE.Mesh(ringGeometry, ringMaterial);
           ring.position.copy(mesh.position);
           ring.rotation.x = Math.PI / 2;
           planetsGroup.add(ring);
           mesh.userData.activityRing = ring;
+          
+          console.log(`💍 Anel criado para ${planet.name}: facção ${planet.faction} → ${mappedFaction}, cor 0x${factionColor.toString(16)}`);
         }
 
-        // Linhas conectoras
+        // Anel de aviso para planetas críticos
+        if (planet.status === 'critical') {
+          const warningGeometry = new THREE.TorusGeometry(radius * 2, 0.1, 8, 100);
+          const warningMaterial = new THREE.MeshBasicMaterial({
+            color: 0xFF0000,
+            transparent: true,
+            opacity: 0.8
+          });
+          const warningRing = new THREE.Mesh(warningGeometry, warningMaterial);
+          warningRing.position.copy(mesh.position);
+          warningRing.rotation.x = Math.PI / 2;
+          planetsGroup.add(warningRing);
+          mesh.userData.warningRing = warningRing;
+        }
+
+        // Linhas conectoras com cor da FACÇÃO
         if (planet.name !== "Super Earth" && planet.isActive) {
           const points = [
             new THREE.Vector3(0, 0, 0),
             new THREE.Vector3(planet.position.x, planet.position.y, planet.position.z)
           ];
           const lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
+          const mappedFaction = mapFactionIdToName(planet.faction);
+          const factionColor = getFactionColor(mappedFaction);
           const lineMaterial = new THREE.LineBasicMaterial({
-            color: getFactionColor(planet.faction),
+            color: factionColor,
             transparent: true,
             opacity: 0.3
           });
@@ -456,34 +701,39 @@ const GalaxyMap3D = ({
 
       // Event handlers
       const onMouseDown = (e) => {
-        mouseDown = true;
-        lastMouse = { x: e.clientX, y: e.clientY };
-        autoRotate = false;
+        const controls = cameraControlsRef.current;
+        controls.mouseDown = true;
+        controls.lastMouse = { x: e.clientX, y: e.clientY };
+        controls.autoRotate = false;
         setAutoRotateUI(false);
         renderer.domElement.style.cursor = 'grabbing';
       };
 
       const onMouseMove = (e) => {
-        if (!mouseDown) return;
-        const dx = e.clientX - lastMouse.x;
-        const dy = e.clientY - lastMouse.y;
-        theta -= dx * 0.01;
-        phi = Math.max(0.1, Math.min(Math.PI - 0.1, phi - dy * 0.01));
-        lastMouse = { x: e.clientX, y: e.clientY };
+        const controls = cameraControlsRef.current;
+        if (!controls.mouseDown) return;
+        const dx = e.clientX - controls.lastMouse.x;
+        const dy = e.clientY - controls.lastMouse.y;
+        controls.theta -= dx * 0.01;
+        controls.phi = Math.max(0.1, Math.min(Math.PI - 0.1, controls.phi - dy * 0.01));
+        controls.lastMouse = { x: e.clientX, y: e.clientY };
       };
 
       const onMouseUp = () => {
-        mouseDown = false;
+        const controls = cameraControlsRef.current;
+        controls.mouseDown = false;
         renderer.domElement.style.cursor = 'grab';
       };
 
       const onWheel = (e) => {
         e.preventDefault();
-        distance = Math.max(50, Math.min(500, distance + e.deltaY * 0.2));
+        const controls = cameraControlsRef.current;
+        controls.distance = Math.max(50, Math.min(500, controls.distance + e.deltaY * 0.2));
       };
 
       const onClick = (e) => {
-        if (mouseDown) return;
+        const controls = cameraControlsRef.current;
+        if (controls.mouseDown) return;
         
         const rect = renderer.domElement.getBoundingClientRect();
         const mouse = new THREE.Vector2();
@@ -511,10 +761,10 @@ const GalaxyMap3D = ({
 
       // Animation loop
       const animate = () => {
-        requestAnimationFrame(animate);
-
-        if (autoRotate) {
-          theta += 0.005;
+        const controls = cameraControlsRef.current;
+        
+        if (controls.autoRotate) {
+          controls.theta += 0.005;
         }
 
         planetMeshes.forEach((mesh, index) => {
@@ -529,51 +779,111 @@ const GalaxyMap3D = ({
         stars.rotation.y += 0.0002;
         updateCamera();
         renderer.render(scene, camera);
+        
+        animationIdRef.current = requestAnimationFrame(animate);
       };
 
       animate();
 
       // Global functions
       window.galaxyResetCamera = () => {
-        theta = 0;
-        phi = Math.PI / 4;
-        distance = 150;
-        autoRotate = false;
+        const controls = cameraControlsRef.current;
+        controls.theta = 0;
+        controls.phi = Math.PI / 4;
+        controls.distance = 150;
+        controls.autoRotate = false;
         setAutoRotateUI(false);
         setSelectedPlanet(null);
       };
 
       window.galaxyToggleAutoRotate = () => {
-        autoRotate = !autoRotate;
-        setAutoRotateUI(autoRotate);
+        const controls = cameraControlsRef.current;
+        controls.autoRotate = !controls.autoRotate;
+        setAutoRotateUI(controls.autoRotate);
       };
+
+      // Marcar como inicializado
+      isInitializedRef.current = true;
+      setIsLoading(false);
 
       // Cleanup
       return () => {
+        if (animationIdRef.current) {
+          cancelAnimationFrame(animationIdRef.current);
+        }
+        
         renderer.domElement.removeEventListener('mousedown', onMouseDown);
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
         renderer.domElement.removeEventListener('wheel', onWheel);
         renderer.domElement.removeEventListener('click', onClick);
         
-        if (mountRef.current && renderer.domElement) {
-          try {
-            mountRef.current.removeChild(renderer.domElement);
-          } catch (e) {
-            console.log('Renderer já removido');
-          }
+        if (mountRef.current && renderer.domElement && mountRef.current.contains(renderer.domElement)) {
+          mountRef.current.removeChild(renderer.domElement);
         }
         
         renderer.dispose();
         delete window.galaxyResetCamera;
         delete window.galaxyToggleAutoRotate;
+        
+        isInitializedRef.current = false;
       };
 
     } catch (err) {
       console.error('❌ Erro ao inicializar 3D:', err);
       setError(`Erro ao carregar mapa 3D: ${err.message}`);
+      setIsLoading(false);
     }
-  }, [allPlanets, showPlanetNames]);
+  }, [allPlanets.length]); // Apenas quando planetas são carregados pela primeira vez
+
+  const getFactionColor = (faction) => {
+    switch(faction) {
+      case 'Super Earth': return 0x00BFFF;
+      case 'Terminids': return 0xFFA500;
+      case 'Automatons': return 0xFF4444;
+      default: return 0x4A90E2;
+    }
+  };
+
+  const getBiomeColor = (biome) => {
+    const slug = biome?.slug?.toLowerCase() || 'unknown';
+    
+    switch(slug) {
+      case 'desert': return 0xDEB887;         // Sandy brown
+      case 'jungle': return 0x228B22;        // Forest green  
+      case 'ice': return 0x87CEEB;           // Sky blue
+      case 'volcanic': return 0xFF4500;      // Orange red
+      case 'moon': return 0xC0C0C0;          // Silver
+      case 'swamp': return 0x556B2F;         // Dark olive green
+      case 'mountain': return 0x8B7355;      // Dark khaki
+      case 'ocean': return 0x006994;         // Deep blue
+      case 'homeworld': return 0x00BFFF;     // Deep sky blue (Super Earth)
+      case 'forest': return 0x32CD32;        // Lime green
+      case 'plains': return 0x9ACD32;        // Yellow green
+      case 'tundra': return 0x4682B4;        // Steel blue
+      case 'canyon': return 0xCD853F;        // Peru
+      case 'mesa': return 0xA0522D;          // Sienna (estava aparecendo nos logs)
+      case 'archipelago': return 0x20B2AA;   // Light sea green
+      case 'highland': 
+      case 'highlands': return 0x708090;     // Slate gray (estava aparecendo nos logs)
+      case 'lowland': return 0x8FBC8F;       // Dark sea green
+      case 'wasteland': return 0x696969;     // Dim gray
+      case 'crystal': return 0xFF69B4;       // Hot pink
+      case 'toxic': return 0x9AFF9A;         // Pale green
+      case 'marsh': return 0x556B2F;         // Dark olive green
+      case 'hills': return 0x8B7D6B;         // Dark tan
+      case 'valleys': return 0x6B8E23;       // Olive drab
+      case 'badlands': return 0x8B4513;      // Saddle brown
+      case 'steppes': return 0xBDB76B;       // Dark khaki
+      case 'savanna': return 0xF4A460;       // Sandy brown
+      case 'rainforest': return 0x006400;    // Dark green
+      case 'taiga': return 0x2F4F4F;         // Dark slate gray
+      case 'moors': return 0x483D8B;         // Dark slate blue
+      case 'fjords': return 0x4169E1;        // Royal blue
+      case 'unknown': 
+      default: return 0x808080;              // Gray (unknown)
+    }
+  };
 
   // Funções de controle
   const resetCamera = () => {
@@ -619,7 +929,7 @@ const GalaxyMap3D = ({
           <div className="text-center">
             <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-cyan-400 mx-auto mb-2"></div>
             <p className="text-cyan-400 text-sm font-bold">Loading Complete Galaxy...</p>
-            <p className="text-slate-400 text-xs">Scanning {allPlanets.length} worlds...</p>
+            <p className="text-slate-400 text-xs">Initializing 3D scene...</p>
           </div>
         </div>
       )}
@@ -629,7 +939,7 @@ const GalaxyMap3D = ({
         <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50">
           <div className="bg-cyan-900/90 border border-cyan-500/50 rounded-lg p-2 flex items-center space-x-2">
             <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
-            <span className="text-cyan-400 text-sm font-bold">Updating Galaxy Data...</span>
+            <span className="text-cyan-400 text-sm font-bold">Updating Data...</span>
           </div>
         </div>
       )}
@@ -653,7 +963,7 @@ const GalaxyMap3D = ({
       )}
 
       {/* Enhanced Controls */}
-      {showControls && (
+      {showControls && !isLoading && (
         <>
           <div className="absolute top-4 left-4 z-10">
             <div className="bg-black/90 backdrop-blur-sm border border-cyan-500/30 rounded-lg p-4 text-white">
@@ -662,18 +972,22 @@ const GalaxyMap3D = ({
                 {isUpdating && <RefreshCw className="w-4 h-4 animate-spin" />}
               </h2>
               <div className="space-y-2 text-sm">
+                <div className="text-cyan-400 font-semibold mb-2">Faction Control:</div>
                 <div className="flex items-center space-x-2">
                   <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-                  <span>Super Earth ({allPlanets.filter(p => p.faction === 'Super Earth').length})</span>
+                  <span>Super Earth ({allPlanets.filter(p => mapFactionIdToName(p.faction) === 'Super Earth').length})</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
-                  <span>Terminids ({allPlanets.filter(p => p.faction === 'Terminids').length})</span>
+                  <span>Terminids ({allPlanets.filter(p => mapFactionIdToName(p.faction) === 'Terminids').length})</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                  <span>Automatons ({allPlanets.filter(p => p.faction === 'Automatons').length})</span>
+                  <span>Automatons ({allPlanets.filter(p => mapFactionIdToName(p.faction) === 'Automatons').length})</span>
                 </div>
+                
+                
+                
                 <div className="border-t border-gray-600 pt-2 mt-2">
                   <div className="flex items-center space-x-2">
                     <Activity className="w-3 h-3 text-green-400" />
@@ -683,26 +997,32 @@ const GalaxyMap3D = ({
                     <Globe2 className="w-3 h-3 text-blue-400" />
                     <span>Total: {allPlanets.length}</span>
                   </div>
+                  {factionUpdateTrigger > 0 && (
+                    <div className="text-xs text-green-400 mt-1">
+                      Updates: #{factionUpdateTrigger}
+                    </div>
+                  )}
                 </div>
               </div>
+
+              <div className="border-t border-gray-600 pt-2 mt-2">
+              <div className='grid grid-cols-4 gap-4 overflow-y-auto'>
               
-              <div className="space-y-2 mt-4">
                 <button onClick={resetCamera} className="flex items-center space-x-2 px-3 py-2 bg-purple-600 hover:bg-purple-700 rounded text-sm w-full justify-center">
                   <RotateCcw className="w-4 h-4" />
-                  <span>Reset View</span>
+                  
                 </button>
                 
                 <button onClick={toggleAutoRotate} className={`flex items-center space-x-2 px-3 py-2 rounded text-sm w-full justify-center ${autoRotateUI ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}>
                   <Target className="w-4 h-4" />
-                  <span>{autoRotateUI ? 'Stop Rotate' : 'Auto Rotate'}</span>
+                  
                 </button>
 
                 <button onClick={togglePlanetNames} className={`flex items-center space-x-2 px-3 py-2 rounded text-sm w-full justify-center ${showPlanetNames ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
                   <Eye className="w-4 h-4" />
-                  <span>{showPlanetNames ? 'Hide Names' : 'Show Names'}</span>
+                  
                 </button>
 
-                {/* Botão para forçar refresh */}
                 <button 
                   onClick={() => fetchAllPlanets(true)} 
                   disabled={isUpdating}
@@ -711,8 +1031,10 @@ const GalaxyMap3D = ({
                   }`}
                 >
                   <RefreshCw className={`w-4 h-4 ${isUpdating ? 'animate-spin' : ''}`} />
-                  <span>{isUpdating ? 'Updating...' : 'Refresh Data'}</span>
+                  
                 </button>
+                
+                </div>
               </div>
             </div>
           </div>
@@ -737,10 +1059,14 @@ const GalaxyMap3D = ({
                 <p>🖱️ <strong>Drag:</strong> Rotate galaxy</p>
                 <p>🖱️ <strong>Scroll:</strong> Zoom in/out</p>
                 <p>🎯 <strong>Click:</strong> Select planet</p>
-                <p>💫 <strong>Stars:</strong> Background rotation</p>
                 <p>🔗 <strong>Lines:</strong> Active routes</p>
                 <p>💍 <strong>Rings:</strong> Active battles</p>
-                <p className="text-cyan-400">🔄 <strong>Auto-refresh:</strong> 30s intervals</p>
+                <div className="border-t border-gray-600 pt-1 mt-1">
+                  <p className="text-cyan-400"><strong>Color System:</strong></p>
+                  <p>🌍 Planet = Biome type</p>
+                  <p>💍 Rings = Faction control</p>
+                  <p>🔴 Red ring = Critical status</p>
+                </div>
               </div>
             </div>
           </div>

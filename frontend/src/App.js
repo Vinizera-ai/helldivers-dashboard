@@ -14,8 +14,9 @@ const App = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshCount, setRefreshCount] = useState(0);
   
-  // Usar useRef para evitar re-criar o mapa 3D desnecessariamente
-  const mapDataRef = useRef({ campaigns: [], warStatus: null });
+  // Usar useRef para controlar o intervalo e evitar múltiplos intervalos
+  const intervalRef = useRef(null);
+  const isInitialLoadRef = useRef(true);
 
   // URL base do nosso backend local
   const API_BASE = 'http://localhost:5000/api';
@@ -23,6 +24,12 @@ const App = () => {
   // Função para buscar dados da API com melhor controle
   const fetchData = useCallback(async (isAutoRefresh = false) => {
     try {
+      // Evitar múltiplas chamadas simultâneas
+      if (isRefreshing && isAutoRefresh) {
+        console.log('🔄 Refresh já em andamento, pulando...');
+        return;
+      }
+
       if (!isAutoRefresh) {
         setLoading(true);
       } else {
@@ -33,10 +40,10 @@ const App = () => {
       
       // Buscar todos os dados em paralelo para maior velocidade
       const [campaignsResponse, statusResponse, ordersResponse, newsResponse] = await Promise.all([
-        axios.get(`${API_BASE}/war/campaign`),
-        axios.get(`${API_BASE}/war/status`),
-        axios.get(`${API_BASE}/war/major-orders`),
-        axios.get(`${API_BASE}/war/news?limit=8`)
+        axios.get(`${API_BASE}/war/campaign`, { timeout: 10000 }),
+        axios.get(`${API_BASE}/war/status`, { timeout: 10000 }),
+        axios.get(`${API_BASE}/war/major-orders`, { timeout: 10000 }),
+        axios.get(`${API_BASE}/war/news?limit=8`, { timeout: 10000 })
       ]);
 
       // Processar campanhas
@@ -48,10 +55,10 @@ const App = () => {
       const newWarStatus = {
         warId: statusData.warId,
         time: statusData.time,
-        totalPlayers: statusData.metadata.totalPlayers,
-        activePlanets: statusData.metadata.activePlanets,
+        totalPlayers: statusData.metadata?.totalPlayers || 0,
+        activePlanets: statusData.metadata?.activePlanets || 0,
         lastUpdate: new Date().toLocaleTimeString('pt-BR'),
-        planetStatus: statusData.planetStatus || [] // Incluir dados dos planetas
+        planetStatus: statusData.planetStatus || []
       };
       setWarStatus(newWarStatus);
 
@@ -61,15 +68,17 @@ const App = () => {
       // Processar notícias
       setNews(newsResponse.data.news || []);
 
-      // Atualizar referência para o mapa 3D
-      mapDataRef.current = {
-        campaigns: campaignsData,
-        warStatus: newWarStatus
-      };
-
       setError(null);
       setLastUpdate(new Date());
-      setRefreshCount(prev => prev + 1);
+      
+      // Incrementar contador apenas para mudanças reais
+      if (isAutoRefresh || !isInitialLoadRef.current) {
+        setRefreshCount(prev => prev + 1);
+      }
+      
+      if (isInitialLoadRef.current) {
+        isInitialLoadRef.current = false;
+      }
       
       console.log(`✅ ${isAutoRefresh ? 'Auto-refresh' : 'Refresh'} concluído!`);
       
@@ -87,25 +96,41 @@ const App = () => {
       setLoading(false);
       setIsRefreshing(false);
     }
-  }, [API_BASE]);
+  }, [API_BASE, isRefreshing]);
 
   // Refresh manual
-  const handleManualRefresh = () => {
+  const handleManualRefresh = useCallback(() => {
+    console.log('🔄 Refresh manual solicitado');
     fetchData(false);
-  };
+  }, [fetchData]);
 
-  // Configurar auto-refresh inteligente
+  // Configurar auto-refresh com controle rigoroso
   useEffect(() => {
+    console.log('🎯 Configurando sistema de auto-refresh...');
+    
     // Buscar dados iniciais
     fetchData(false);
     
-    // Auto-refresh a cada 30 segundos (apenas dados, não recarrega página)
-    const interval = setInterval(() => {
+    // Limpar intervalo anterior se existir
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+    
+    // Auto-refresh a cada 30 segundos
+    intervalRef.current = setInterval(() => {
+      console.log('⏰ Executando auto-refresh agendado...');
       fetchData(true);
     }, 30000);
     
-    return () => clearInterval(interval);
-  }, [fetchData]);
+    // Cleanup
+    return () => {
+      if (intervalRef.current) {
+        console.log('🧹 Limpando intervalo de auto-refresh...');
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, []); // Dependências vazias = executa apenas uma vez
 
   const getFactionColor = (faction) => {
     switch(faction) {
@@ -123,7 +148,14 @@ const App = () => {
     }
   };
 
-  if (loading) {
+  // Calcular tempo até próximo refresh
+  const getTimeUntilNextRefresh = () => {
+    if (!lastUpdate) return 30;
+    const elapsed = Math.floor((Date.now() - lastUpdate.getTime()) / 1000);
+    return Math.max(0, 30 - elapsed);
+  };
+
+  if (loading && isInitialLoadRef.current) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 flex items-center justify-center">
         <div className="text-center">
@@ -163,7 +195,7 @@ const App = () => {
           </div>
           
           <div className="text-right">
-            <p className="text-sm text-slate-400">War ID: {warStatus?.warId}</p>
+            <p className="text-sm text-slate-400">War ID: {warStatus?.warId || 'N/A'}</p>
             <p className="text-lg font-bold text-cyan-400">ACTIVE</p>
             {lastUpdate && (
               <p className="text-xs text-slate-500">
@@ -191,13 +223,26 @@ const App = () => {
         </div>
       </div>
 
-      {/* Indicador de Auto-Refresh */}
+      {/* Indicador de Auto-Refresh Melhorado */}
       <div className="bg-green-900/30 border-b border-green-500/30 p-2">
-        <div className="max-w-7xl mx-auto">
-          <p className="text-green-400 text-sm text-center">
-            🔄 Auto-refresh ativo: dados atualizados automaticamente a cada 30 segundos
-            {lastUpdate && ` • Próxima atualização em ${30 - Math.floor((Date.now() - lastUpdate.getTime()) / 1000)}s`}
-          </p>
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+            <p className="text-green-400 text-sm">
+              🔄 Auto-refresh ativo: dados atualizados automaticamente a cada 30 segundos
+            </p>
+          </div>
+          {lastUpdate && !isRefreshing && (
+            <p className="text-green-300 text-xs">
+              Próxima atualização em {getTimeUntilNextRefresh()}s
+            </p>
+          )}
+          {isRefreshing && (
+            <div className="flex items-center space-x-1">
+              <RefreshCw className="w-3 h-3 animate-spin text-cyan-400" />
+              <p className="text-cyan-400 text-xs">Atualizando dados...</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -294,7 +339,7 @@ const App = () => {
           </div>
         )}
 
-        {/* Mapa 3D Otimizado */}
+        {/* Mapa 3D com Controle de Atualizações */}
         <div className="space-y-6">
           <div className="space-y-4">
             <h2 className="text-2xl font-bold text-cyan-400 flex items-center space-x-2">
@@ -310,7 +355,7 @@ const App = () => {
                 warStatus={warStatus}
                 embedded={true}
                 showControls={true}
-                refreshKey={refreshCount} // Força re-render quando dados mudam
+                refreshKey={refreshCount} // Passa o contador como chave
               />
             </div>
           </div>
@@ -320,6 +365,7 @@ const App = () => {
             <h2 className="text-2xl font-bold text-cyan-400 flex items-center space-x-2">
               <Activity className="w-6 h-6" />
               <span>Active Campaigns ({campaigns.length})</span>
+              {isRefreshing && <RefreshCw className="w-4 h-4 animate-spin" />}
             </h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 max-h-96 overflow-y-auto">
@@ -376,7 +422,10 @@ const App = () => {
         {/* News Feed */}
         {news && news.length > 0 && (
           <div className="bg-black/30 backdrop-blur-sm p-6 rounded-xl border border-slate-600/30">
-            <h2 className="text-xl font-bold text-cyan-400 mb-4">War Updates</h2>
+            <h2 className="text-xl font-bold text-cyan-400 mb-4 flex items-center space-x-2">
+              <span>War Updates</span>
+              {isRefreshing && <RefreshCw className="w-4 h-4 animate-spin" />}
+            </h2>
             <div className="space-y-3 max-h-64 overflow-y-auto">
               {news.map(item => {
                 const timeAgo = Math.floor((Date.now() - item.published) / (1000 * 60 * 60));

@@ -18,9 +18,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// Dados demo que SEMPRE funcionam
+// Dados demo que SEMPRE funcionam com distribuição realista de facções
 function getReliableDemoPlanets() {
   return [
+    // Super Earth (homeworld + territórios seguros)
     {
       index: 0,
       name: "Super Earth",
@@ -32,33 +33,44 @@ function getReliableDemoPlanets() {
     },
     {
       index: 1,
-      name: "Klen Dahth II",
-      sector: "Altus",
-      biome: { name: "Desert", slug: "desert" },
+      name: "Tien Kwan",
+      sector: "Hydra",
+      biome: { name: "Swamp", slug: "swamp" },
       maxHealth: 1000000,
       initialOwner: "Super Earth",
       currentOwner: "Super Earth"
     },
     {
       index: 2,
-      name: "Pathfinder V",
-      sector: "Altus", 
-      biome: { name: "Jungle", slug: "jungle" },
+      name: "Mort",
+      sector: "Hydra",
+      biome: { name: "Mountain", slug: "mountain" },
       maxHealth: 1000000,
       initialOwner: "Super Earth",
-      currentOwner: "Terminids"
+      currentOwner: "Super Earth"
     },
     {
       index: 3,
-      name: "Widow's Harbor",
-      sector: "Altus",
-      biome: { name: "Ocean", slug: "ocean" },
+      name: "Cyberstan",
+      sector: "Draco",
+      biome: { name: "Plains", slug: "plains" },
       maxHealth: 1000000,
       initialOwner: "Super Earth",
-      currentOwner: "Automatons"
+      currentOwner: "Super Earth"
     },
     {
       index: 4,
+      name: "New Haven",
+      sector: "Hydra",
+      biome: { name: "Forest", slug: "forest" },
+      maxHealth: 1000000,
+      initialOwner: "Super Earth",
+      currentOwner: "Super Earth"
+    },
+    
+    // Territórios controlados pelos Automatons
+    {
+      index: 5,
       name: "Malevelon Creek",
       sector: "Severin",
       biome: { name: "Jungle", slug: "jungle" },
@@ -67,17 +79,8 @@ function getReliableDemoPlanets() {
       currentOwner: "Automatons"
     },
     {
-      index: 5,
-      name: "Estanu",
-      sector: "Mirin",
-      biome: { name: "Ice", slug: "ice" },
-      maxHealth: 1000000,
-      initialOwner: "Super Earth",
-      currentOwner: "Terminids"
-    },
-    {
       index: 6,
-      name: "Gaellivare",
+      name: "Draupnir",
       sector: "Mirin",
       biome: { name: "Desert", slug: "desert" },
       maxHealth: 1000000,
@@ -86,120 +89,124 @@ function getReliableDemoPlanets() {
     },
     {
       index: 7,
-      name: "Terrek",
+      name: "Automaton Prime",
+      sector: "Ursa",
+      biome: { name: "Wasteland", slug: "wasteland" },
+      maxHealth: 1000000,
+      initialOwner: "Super Earth",
+      currentOwner: "Automatons"
+    },
+    {
+      index: 8,
+      name: "Steel Valley",
+      sector: "Severin",
+      biome: { name: "Canyon", slug: "canyon" },
+      maxHealth: 1000000,
+      initialOwner: "Super Earth",
+      currentOwner: "Automatons"
+    },
+    {
+      index: 9,
+      name: "Robotic Fortress",
+      sector: "Ursa",
+      biome: { name: "Mountain", slug: "mountain" },
+      maxHealth: 1000000,
+      initialOwner: "Super Earth",
+      currentOwner: "Automatons"
+    },
+    {
+      index: 10,
+      name: "Iron Fields",
       sector: "Mirin",
-      biome: { name: "Moon", slug: "moon" },
+      biome: { name: "Tundra", slug: "tundra" },
+      maxHealth: 1000000,
+      initialOwner: "Super Earth",
+      currentOwner: "Automatons"
+    },
+    
+    // Territórios controlados pelos Terminids
+    {
+      index: 11,
+      name: "Estanu",
+      sector: "Mirin",
+      biome: { name: "Ice", slug: "ice" },
       maxHealth: 1000000,
       initialOwner: "Super Earth",
       currentOwner: "Terminids"
     },
     {
-      index: 8,
-      name: "New Haven",
-      sector: "Hydra",
-      biome: { name: "Swamp", slug: "swamp" },
-      maxHealth: 1000000,
-      initialOwner: "Super Earth",
-      currentOwner: "Super Earth"
-    },
-    {
-      index: 9,
-      name: "Fort Unity",
-      sector: "Hydra",
-      biome: { name: "Mountain", slug: "mountain" },
-      maxHealth: 1000000,
-      initialOwner: "Super Earth",
-      currentOwner: "Super Earth"
-    },
-    {
-      index: 10,
-      name: "Prosperity Falls",
-      sector: "Draco",
+      index: 12,
+      name: "Hellmire",
+      sector: "Mirin",
       biome: { name: "Volcanic", slug: "volcanic" },
       maxHealth: 1000000,
       initialOwner: "Super Earth",
       currentOwner: "Terminids"
     },
     {
-      index: 11,
-      name: "Democracy Valley",
-      sector: "Draco",
-      biome: { name: "Desert", slug: "desert" },
-      maxHealth: 1000000,
-      initialOwner: "Super Earth",
-      currentOwner: "Super Earth"
-    },
-    {
-      index: 12,
-      name: "Liberty Station",
-      sector: "Ursa",
-      biome: { name: "Ice", slug: "ice" },
-      maxHealth: 1000000,
-      initialOwner: "Super Earth",
-      currentOwner: "Automatons"
-    },
-    {
       index: 13,
-      name: "Freedom Peak",
-      sector: "Ursa",
-      biome: { name: "Mountain", slug: "mountain" },
+      name: "Meridia",
+      sector: "Draco",
+      biome: { name: "Ocean", slug: "ocean" },
       maxHealth: 1000000,
       initialOwner: "Super Earth",
-      currentOwner: "Super Earth"
+      currentOwner: "Terminids"
     },
     {
       index: 14,
-      name: "Eagle's Nest",
+      name: "Terminid Prime",
       sector: "Lacaille",
-      biome: { name: "Jungle", slug: "jungle" },
+      biome: { name: "Forest", slug: "forest" },
       maxHealth: 1000000,
-      initialOwner: "Super Earth", 
+      initialOwner: "Super Earth",
       currentOwner: "Terminids"
     },
     {
       index: 15,
-      name: "Valor Ridge",
-      sector: "Lacaille",
-      biome: { name: "Desert", slug: "desert" },
-      maxHealth: 1000000,
-      initialOwner: "Super Earth",
-      currentOwner: "Super Earth"
-    },
-    {
-      index: 16,
-      name: "Honor Falls",
+      name: "Toxic Marsh",
       sector: "Draco",
-      biome: { name: "Mountain", slug: "mountain" },
-      maxHealth: 1000000,
-      initialOwner: "Super Earth",
-      currentOwner: "Super Earth"
-    },
-    {
-      index: 17,
-      name: "Victory Point",
-      sector: "Ursa",
-      biome: { name: "Volcanic", slug: "volcanic" },
-      maxHealth: 1000000,
-      initialOwner: "Super Earth",
-      currentOwner: "Automatons"
-    },
-    {
-      index: 18,
-      name: "Triumph Heights",
-      sector: "Lacaille",
-      biome: { name: "Ice", slug: "ice" },
+      biome: { name: "Toxic", slug: "toxic" },
       maxHealth: 1000000,
       initialOwner: "Super Earth",
       currentOwner: "Terminids"
     },
     {
-      index: 19,
-      name: "Gallant Fields",
-      sector: "Hydra",
+      index: 16,
+      name: "Hive World",
+      sector: "Lacaille",
       biome: { name: "Swamp", slug: "swamp" },
       maxHealth: 1000000,
       initialOwner: "Super Earth",
+      currentOwner: "Terminids"
+    },
+    {
+      index: 17,
+      name: "Bug Colony",
+      sector: "Mirin",
+      biome: { name: "Desert", slug: "desert" },
+      maxHealth: 1000000,
+      initialOwner: "Super Earth",
+      currentOwner: "Terminids"
+    },
+    
+    // Territórios disputados
+    {
+      index: 18,
+      name: "Border Station Alpha",
+      sector: "Frontier",
+      biome: { name: "Highland", slug: "highland" },
+      maxHealth: 1000000,
+      initialOwner: "Super Earth",
       currentOwner: "Super Earth"
+    },
+    {
+      index: 19,
+      name: "Contested World",
+      sector: "Neutral Zone",
+      biome: { name: "Crystal", slug: "crystal" },
+      maxHealth: 1000000,
+      initialOwner: "Super Earth",
+      currentOwner: "Automatons"
     }
   ];
 }
@@ -214,9 +221,9 @@ app.get('/', (req, res) => {
   });
 });
 
-// ROTA À PROVA DE BALAS PARA PLANETAS
+// ROTA À PROVA DE BALAS PARA PLANETAS COM FACÇÕES MELHORADAS
 app.get('/api/planets', async (req, res) => {
-  console.log('📡 Iniciando busca de planetas...');
+  console.log('📡 Iniciando busca de planetas com informações de facção...');
   
   // SEMPRE garantir que temos uma resposta válida
   let planetsArray = [];
@@ -237,15 +244,12 @@ app.get('/api/planets', async (req, res) => {
     console.log('✅ Resposta da API recebida!');
     console.log('📊 Status:', response.status);
     console.log('📊 Tipo de dados:', typeof response.data);
-    console.log('📊 Dados:', response.data ? 'existem' : 'vazios');
     
     if (response.data && typeof response.data === 'object') {
       if (Array.isArray(response.data)) {
-        // Se já é array, usar direto
         planetsArray = response.data;
         console.log('✅ API retornou array direto');
       } else {
-        // Converter objeto para array
         const keys = Object.keys(response.data);
         console.log(`📊 Convertendo objeto com ${keys.length} chaves`);
         
@@ -269,13 +273,21 @@ app.get('/api/planets', async (req, res) => {
       source = 'api-real';
       apiStatus = 'online';
       
+      // Log da distribuição de facções da API real
+      const apiFactionCount = {
+        'Super Earth': planetsArray.filter(p => (p.currentOwner || p.initialOwner) === 'Super Earth').length,
+        'Automatons': planetsArray.filter(p => (p.currentOwner || p.initialOwner) === 'Automatons').length,
+        'Terminids': planetsArray.filter(p => (p.currentOwner || p.initialOwner) === 'Terminids').length
+      };
+      console.log('📊 Facções da API real:', apiFactionCount);
+      
     } else {
       throw new Error('API retornou formato inválido');
     }
     
   } catch (error) {
     console.log('⚠️ API externa falhou:', error.message);
-    console.log('🎮 Usando dados demo confiáveis...');
+    console.log('🎮 Usando dados demo confiáveis com distribuição realista...');
     
     // SEMPRE usar dados demo se API falhar
     planetsArray = getReliableDemoPlanets();
@@ -291,6 +303,13 @@ app.get('/api/planets', async (req, res) => {
     apiStatus = 'empty-forced';
   }
   
+  // Log da distribuição final
+  const finalFactionCount = {
+    'Super Earth': planetsArray.filter(p => (p.currentOwner || p.initialOwner) === 'Super Earth').length,
+    'Automatons': planetsArray.filter(p => (p.currentOwner || p.initialOwner) === 'Automatons').length,
+    'Terminids': planetsArray.filter(p => (p.currentOwner || p.initialOwner) === 'Terminids').length
+  };
+  console.log('📊 Distribuição final de facções:', finalFactionCount);
   console.log(`✅ ${planetsArray.length} planetas prontos (fonte: ${source})`);
   
   // SEMPRE retornar resposta válida
@@ -301,7 +320,8 @@ app.get('/api/planets', async (req, res) => {
       source: source,
       apiStatus: apiStatus,
       timestamp: new Date().toISOString(),
-      success: true
+      success: true,
+      factionDistribution: finalFactionCount
     }
   });
 });
@@ -492,6 +512,32 @@ app.get('/api/debug', async (req, res) => {
   res.json(debug);
 });
 
+// Nova rota para debug de facções
+app.get('/api/debug/factions', async (req, res) => {
+  console.log('🔍 Debug específico de facções...');
+  
+  const demoPlanets = getReliableDemoPlanets();
+  const factionAnalysis = {
+    timestamp: new Date().toISOString(),
+    totalPlanets: demoPlanets.length,
+    factionDistribution: {
+      'Super Earth': demoPlanets.filter(p => p.currentOwner === 'Super Earth').length,
+      'Automatons': demoPlanets.filter(p => p.currentOwner === 'Automatons').length,
+      'Terminids': demoPlanets.filter(p => p.currentOwner === 'Terminids').length
+    },
+    planetDetails: demoPlanets.map(p => ({
+      name: p.name,
+      currentOwner: p.currentOwner,
+      initialOwner: p.initialOwner,
+      biome: p.biome?.slug
+    }))
+  };
+  
+  console.log('📊 Análise de facções:', factionAnalysis.factionDistribution);
+  
+  res.json(factionAnalysis);
+});
+
 // Middleware de erro global
 app.use((err, req, res, next) => {
   console.error('❌ Erro interno do servidor:', err);
@@ -510,5 +556,6 @@ app.listen(PORT, () => {
   console.log(`📡 Proxy ativo para: ${HELLDIVERS_API}`);
   console.log(`🔗 Acesse: http://localhost:${PORT}`);
   console.log(`🔍 Debug: http://localhost:${PORT}/api/debug`);
+  console.log(`🎯 Debug Facções: http://localhost:${PORT}/api/debug/factions`);
   console.log('🚀 ================================\n');
 });
