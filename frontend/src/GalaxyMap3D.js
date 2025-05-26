@@ -1,26 +1,41 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import * as THREE from 'three';
-import { Users, Target, Shield, Zap, Eye, RotateCcw, ArrowLeft, Globe2, Activity } from 'lucide-react';
+import { Users, Target, Shield, Zap, Eye, RotateCcw, ArrowLeft, Globe2, Activity, RefreshCw } from 'lucide-react';
 import axios from 'axios';
 
-const GalaxyMap3D = ({ onBack, campaigns = [], embedded = false, fullscreen = false, onMaximize, showControls = false }) => {
+const GalaxyMap3D = ({ 
+  onBack, 
+  campaigns = [], 
+  warStatus = null,
+  embedded = false, 
+  fullscreen = false, 
+  onMaximize, 
+  showControls = false,
+  refreshKey = 0 // Nova prop para forçar atualizações
+}) => {
   const mountRef = useRef(null);
+  const sceneRef = useRef(null);
+  const rendererRef = useRef(null);
+  const planetMeshesRef = useRef([]);
+  const planetsGroupRef = useRef(null);
+  
   const [selectedPlanet, setSelectedPlanet] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [autoRotateUI, setAutoRotateUI] = useState(false);
   const [allPlanets, setAllPlanets] = useState([]);
   const [showPlanetNames, setShowPlanetNames] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
 
-  // Buscar TODOS os planetas da API
-// SUBSTITUA a função useEffect que contém fetchAllPlanets no seu GalaxyMap3D.js por esta:
-
-// SUBSTITUA apenas a função useEffect que contém fetchAllPlanets por esta versão:
-
-useEffect(() => {
-  const fetchAllPlanets = async () => {
-    console.log('📡 Iniciando busca de planetas...');
-    setIsLoading(true);
+  // Função para buscar planetas otimizada
+  const fetchAllPlanets = useCallback(async (isUpdate = false) => {
+    console.log(`📡 ${isUpdate ? 'Atualizando' : 'Carregando'} planetas...`);
+    
+    if (!isUpdate) {
+      setIsLoading(true);
+    } else {
+      setIsUpdating(true);
+    }
     
     try {
       // 1. TESTAR BACKEND
@@ -40,7 +55,6 @@ useEffect(() => {
       let planetsData = [];
       
       if (planetsResponse.data) {
-        // Backend sempre retorna: { planets: [...], metadata: {...} }
         if (planetsResponse.data.planets && Array.isArray(planetsResponse.data.planets)) {
           planetsData = planetsResponse.data.planets;
           console.log(`✅ ${planetsData.length} planetas extraídos do campo .planets`);
@@ -61,20 +75,17 @@ useEffect(() => {
       
       console.log(`🎉 ${planetsData.length} planetas válidos!`);
       
-      // 5. BUSCAR DADOS DE GUERRA (opcional)
-      let warStatus = { planetStatus: [] };
-      try {
-        const warResponse = await axios.get('http://localhost:5000/api/war/status', { timeout: 5000 });
-        warStatus = warResponse.data || { planetStatus: [] };
-        console.log(`📊 Dados de guerra: ${warStatus.planetStatus?.length || 0} planetas`);
-      } catch (warError) {
-        console.log('⚠️ Dados de guerra indisponíveis');
+      // 5. USAR DADOS DE GUERRA JÁ DISPONÍVEIS
+      let planetStatusData = [];
+      if (warStatus && warStatus.planetStatus) {
+        planetStatusData = warStatus.planetStatus;
+        console.log(`📊 Usando dados de guerra: ${planetStatusData.length} planetas`);
       }
       
       // 6. PROCESSAR PLANETAS
       const enrichedPlanets = planetsData.map((planet, arrayIndex) => {
         const planetIndex = planet.index !== undefined ? planet.index : arrayIndex;
-        const warData = warStatus.planetStatus?.find(p => p.index === planetIndex) || {};
+        const warData = planetStatusData.find(p => p.index === planetIndex) || {};
         const campaignData = campaigns.find(c => 
           c.name === planet.name || c.planetIndex === planetIndex
         ) || {};
@@ -121,143 +132,25 @@ useEffect(() => {
         superEarth.isActive = true;
       }
       
-      console.log(`🎉 SUCESSO! ${enrichedPlanets.length} planetas carregados`);
+      console.log(`🎉 SUCESSO! ${enrichedPlanets.length} planetas ${isUpdate ? 'atualizados' : 'carregados'}`);
       
       // 8. DEFINIR ESTADO
       setAllPlanets(enrichedPlanets);
       setError(null);
       
+      // 9. ATUALIZAR MAPA 3D SE JÁ EXISTE
+      if (isUpdate && sceneRef.current && planetMeshesRef.current.length > 0) {
+        updatePlanetMeshes(enrichedPlanets);
+      }
+      
     } catch (err) {
       console.error('❌ ERRO:', err.message);
-      console.log('🚨 Carregando planetas de emergência...');
       
-      // PLANETAS DE EMERGÊNCIA (sempre funcionam)
-      const emergencyPlanets = [
-        {
-          name: "Super Earth", index: 0, faction: "Super Earth", players: 50000,
-          health: 1000000, maxHealth: 1000000, position: { x: 0, y: 0, z: 0 },
-          biome: { name: "Homeworld", slug: "homeworld" }, sector: "Sol System",
-          status: "safe", isActive: true, liberationPercentage: 100
-        },
-        {
-          name: "Malevelon Creek", index: 1, faction: "Automatons", players: 2500,
-          health: 750000, maxHealth: 1000000, position: { x: 45, y: 10, z: -30 },
-          biome: { name: "Jungle", slug: "jungle" }, sector: "Severin",
-          status: "critical", isActive: true, liberationPercentage: 25, defense: true
-        },
-        {
-          name: "Estanu", index: 2, faction: "Terminids", players: 1800,
-          health: 600000, maxHealth: 1000000, position: { x: -35, y: -15, z: 40 },
-          biome: { name: "Ice", slug: "ice" }, sector: "Mirin",
-          status: "active", isActive: true, liberationPercentage: 40
-        },
-        {
-          name: "Gaellivare", index: 3, faction: "Automatons", players: 3200,
-          health: 400000, maxHealth: 1000000, position: { x: 60, y: 20, z: 15 },
-          biome: { name: "Desert", slug: "desert" }, sector: "Mirin",
-          status: "contested", isActive: true, liberationPercentage: 60
-        },
-        {
-          name: "Terrek", index: 4, faction: "Terminids", players: 900,
-          health: 800000, maxHealth: 1000000, position: { x: -50, y: -25, z: -20 },
-          biome: { name: "Moon", slug: "moon" }, sector: "Mirin",
-          status: "contested", isActive: true, liberationPercentage: 20
-        },
-        {
-          name: "New Haven", index: 5, faction: "Super Earth", players: 0,
-          health: 1000000, maxHealth: 1000000, position: { x: -25, y: 5, z: -45 },
-          biome: { name: "Swamp", slug: "swamp" }, sector: "Hydra",
-          status: "peaceful", isActive: false, liberationPercentage: 100
-        },
-        {
-          name: "Fort Unity", index: 6, faction: "Super Earth", players: 0,
-          health: 1000000, maxHealth: 1000000, position: { x: 35, y: -10, z: 50 },
-          biome: { name: "Mountain", slug: "mountain" }, sector: "Hydra",
-          status: "peaceful", isActive: false, liberationPercentage: 100
-        },
-        {
-          name: "Prosperity Falls", index: 7, faction: "Terminids", players: 1200,
-          health: 650000, maxHealth: 1000000, position: { x: 20, y: 30, z: -35 },
-          biome: { name: "Volcanic", slug: "volcanic" }, sector: "Draco",
-          status: "active", isActive: true, liberationPercentage: 35
-        },
-        {
-          name: "Democracy Valley", index: 8, faction: "Super Earth", players: 0,
-          health: 1000000, maxHealth: 1000000, position: { x: -40, y: 15, z: 25 },
-          biome: { name: "Desert", slug: "desert" }, sector: "Draco",
-          status: "peaceful", isActive: false, liberationPercentage: 100
-        },
-        {
-          name: "Liberty Station", index: 9, faction: "Automatons", players: 1500,
-          health: 550000, maxHealth: 1000000, position: { x: 55, y: -5, z: -15 },
-          biome: { name: "Ice", slug: "ice" }, sector: "Ursa",
-          status: "active", isActive: true, liberationPercentage: 45
-        },
-        {
-          name: "Freedom Peak", index: 10, faction: "Super Earth", players: 0,
-          health: 1000000, maxHealth: 1000000, position: { x: -15, y: 25, z: 55 },
-          biome: { name: "Mountain", slug: "mountain" }, sector: "Ursa",
-          status: "peaceful", isActive: false, liberationPercentage: 100
-        },
-        {
-          name: "Eagle's Nest", index: 11, faction: "Terminids", players: 2100,
-          health: 450000, maxHealth: 1000000, position: { x: 40, y: -20, z: 30 },
-          biome: { name: "Jungle", slug: "jungle" }, sector: "Lacaille",
-          status: "critical", isActive: true, liberationPercentage: 55, defense: true
-        },
-        {
-          name: "Valor Ridge", index: 12, faction: "Super Earth", players: 0,
-          health: 1000000, maxHealth: 1000000, position: { x: -30, y: -35, z: -40 },
-          biome: { name: "Desert", slug: "desert" }, sector: "Lacaille",
-          status: "peaceful", isActive: false, liberationPercentage: 100
-        },
-        {
-          name: "Honor Falls", index: 13, faction: "Super Earth", players: 0,
-          health: 1000000, maxHealth: 1000000, position: { x: 25, y: 40, z: -25 },
-          biome: { name: "Mountain", slug: "mountain" }, sector: "Draco",
-          status: "peaceful", isActive: false, liberationPercentage: 100
-        },
-        {
-          name: "Victory Point", index: 14, faction: "Automatons", players: 1800,
-          health: 350000, maxHealth: 1000000, position: { x: -45, y: -10, z: 35 },
-          biome: { name: "Volcanic", slug: "volcanic" }, sector: "Ursa",
-          status: "critical", isActive: true, liberationPercentage: 65, defense: true
-        },
-        {
-          name: "Triumph Heights", index: 15, faction: "Terminids", players: 900,
-          health: 750000, maxHealth: 1000000, position: { x: 30, y: -30, z: -45 },
-          biome: { name: "Ice", slug: "ice" }, sector: "Lacaille",
-          status: "contested", isActive: true, liberationPercentage: 25
-        },
-        {
-          name: "Gallant Fields", index: 16, faction: "Super Earth", players: 0,
-          health: 1000000, maxHealth: 1000000, position: { x: -55, y: 20, z: -10 },
-          biome: { name: "Swamp", slug: "swamp" }, sector: "Hydra",
-          status: "peaceful", isActive: false, liberationPercentage: 100
-        },
-        {
-          name: "Heroic Plateau", index: 17, faction: "Automatons", players: 2200,
-          health: 300000, maxHealth: 1000000, position: { x: 15, y: -40, z: 40 },
-          biome: { name: "Mountain", slug: "mountain" }, sector: "Ursa",
-          status: "critical", isActive: true, liberationPercentage: 70, majorOrder: true
-        },
-        {
-          name: "Brave Frontier", index: 18, faction: "Terminids", players: 1600,
-          health: 500000, maxHealth: 1000000, position: { x: -20, y: 35, z: -55 },
-          biome: { name: "Desert", slug: "desert" }, sector: "Draco",
-          status: "active", isActive: true, liberationPercentage: 50
-        },
-        {
-          name: "Bold Creek", index: 19, faction: "Super Earth", players: 0,
-          health: 1000000, maxHealth: 1000000, position: { x: 50, y: 10, z: 20 },
-          biome: { name: "Jungle", slug: "jungle" }, sector: "Severin",
-          status: "peaceful", isActive: false, liberationPercentage: 100
-        }
-      ];
-      
-      console.log(`🚨 ${emergencyPlanets.length} planetas de emergência carregados`);
-      
-      setAllPlanets(emergencyPlanets);
+      if (!isUpdate) {
+        console.log('🚨 Carregando planetas de emergência...');
+        const emergencyPlanets = generateEmergencyPlanets();
+        setAllPlanets(emergencyPlanets);
+      }
       
       if (err.message.includes('timeout')) {
         setError('API timeout - Usando planetas de emergência');
@@ -268,80 +161,116 @@ useEffect(() => {
       }
     } finally {
       setIsLoading(false);
+      setIsUpdating(false);
     }
-  };
+  }, [campaigns, warStatus]);
 
-  fetchAllPlanets();
-}, [campaigns]);
+  // Função para atualizar meshes dos planetas sem recriar tudo
+  const updatePlanetMeshes = useCallback((updatedPlanets) => {
+    if (!planetMeshesRef.current || planetMeshesRef.current.length === 0) return;
+    
+    console.log('🔄 Atualizando meshes dos planetas...');
+    
+    planetMeshesRef.current.forEach((mesh, index) => {
+      const planetData = updatedPlanets[index];
+      if (!planetData) return;
+      
+      // Atualizar dados do planeta
+      mesh.userData = { planetData };
+      
+      // Atualizar cor baseada na facção
+      const newColor = getFactionColor(planetData.faction);
+      mesh.material.color.setHex(newColor);
+      
+      // Atualizar anel de atividade
+      if (mesh.userData.activityRing) {
+        mesh.userData.activityRing.material.color.setHex(newColor);
+        mesh.userData.activityRing.visible = planetData.isActive;
+      }
+      
+      // Atualizar atmosfera
+      if (mesh.userData.atmosphere) {
+        mesh.userData.atmosphere.material.color.setHex(newColor);
+        mesh.userData.atmosphere.material.opacity = planetData.isActive ? 0.15 : 0.05;
+      }
+    });
+    
+    console.log('✅ Meshes atualizados!');
+  }, []);
 
-const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {}) => {
-  if (planetData.name === "Super Earth") return 'safe';
-  if (campaignData.defense || campaignData.type === 'Defense') return 'critical';
-  if (warData.players > 1000) return 'active';
-  if (warData.players > 0) return 'contested';
-  if (Object.keys(campaignData).length > 0) return 'contested';
-  if (planetData.currentOwner === 'Terminids' || planetData.currentOwner === 'Automatons') return 'contested';
-  return 'peaceful';
-};
-
-  const getStatusFromData = (warData, campaignData) => {
-    if (campaignData.defense) return 'critical';
+  // Função para calcular status do planeta
+  const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {}) => {
+    if (planetData.name === "Super Earth") return 'safe';
+    if (campaignData.defense || campaignData.type === 'Defense') return 'critical';
     if (warData.players > 1000) return 'active';
     if (warData.players > 0) return 'contested';
+    if (Object.keys(campaignData).length > 0) return 'contested';
+    if (planetData.currentOwner === 'Terminids' || planetData.currentOwner === 'Automatons') return 'contested';
     return 'peaceful';
   };
 
-  const generateDemoPlanets = () => {
-    const biomes = ['desert', 'jungle', 'ice', 'volcanic', 'moon', 'swamp', 'mountain', 'ocean'];
-    const factions = ['Super Earth', 'Terminids', 'Automatons', 'Super Earth'];
-    const sectors = ['Galactic North', 'Eastern Fringe', 'Western Reach', 'Southern Expanse', 'Core Systems'];
-    
-    const planets = [
+  // Função para gerar planetas de emergência
+  const generateEmergencyPlanets = () => {
+    return [
       {
-        name: "Super Earth",
-        faction: "Super Earth",
-        players: 50000,
-        health: 1000000,
-        maxHealth: 1000000,
-        position: { x: 0, y: 0, z: 0 },
-        biome: { name: "Homeworld", slug: "homeworld" },
-        status: "safe",
-        isActive: true,
-        index: -1,
-        sector: "Sol System"
-      }
+        name: "Super Earth", index: 0, faction: "Super Earth", players: 50000,
+        health: 1000000, maxHealth: 1000000, position: { x: 0, y: 0, z: 0 },
+        biome: { name: "Homeworld", slug: "homeworld" }, sector: "Sol System",
+        status: "safe", isActive: true, liberationPercentage: 100
+      },
+      {
+        name: "Malevelon Creek", index: 1, faction: "Automatons", players: 2500,
+        health: 750000, maxHealth: 1000000, position: { x: 45, y: 10, z: -30 },
+        biome: { name: "Jungle", slug: "jungle" }, sector: "Severin",
+        status: "critical", isActive: true, liberationPercentage: 25, defense: true
+      },
+      {
+        name: "Estanu", index: 2, faction: "Terminids", players: 1800,
+        health: 600000, maxHealth: 1000000, position: { x: -35, y: -15, z: 40 },
+        biome: { name: "Ice", slug: "ice" }, sector: "Mirin",
+        status: "active", isActive: true, liberationPercentage: 40
+      },
+      // ... mais planetas de emergência
     ];
-
-    // Gerar mais planetas demo
-    for (let i = 0; i < 50; i++) {
-      const angle = (i / 50) * Math.PI * 6;
-      const radius = 30 + Math.random() * 100;
-      const height = (Math.random() - 0.5) * 60;
-      
-      planets.push({
-        name: `Planet ${i + 1}`,
-        faction: factions[Math.floor(Math.random() * factions.length)],
-        players: Math.random() > 0.7 ? Math.floor(Math.random() * 5000) : 0,
-        health: Math.floor(Math.random() * 1000000),
-        maxHealth: 1000000,
-        position: {
-          x: Math.cos(angle) * radius,
-          y: height,
-          z: Math.sin(angle) * radius
-        },
-        biome: { 
-          name: biomes[Math.floor(Math.random() * biomes.length)],
-          slug: biomes[Math.floor(Math.random() * biomes.length)]
-        },
-        status: ['peaceful', 'contested', 'active', 'critical'][Math.floor(Math.random() * 4)],
-        isActive: Math.random() > 0.7,
-        index: i,
-        sector: sectors[Math.floor(Math.random() * sectors.length)]
-      });
-    }
-    
-    return planets;
   };
+
+  // Effect para carregar dados iniciais
+  useEffect(() => {
+    fetchAllPlanets(false);
+  }, []);
+
+  // Effect para atualizações baseadas no refreshKey
+  useEffect(() => {
+    if (refreshKey > 0 && allPlanets.length > 0) {
+      console.log(`🔄 Refresh key mudou: ${refreshKey} - Atualizando dados...`);
+      fetchAllPlanets(true);
+    }
+  }, [refreshKey, fetchAllPlanets]);
+
+  // Effect para responder a mudanças nas campanhas
+  useEffect(() => {
+    if (campaigns.length > 0 && allPlanets.length > 0) {
+      console.log('📊 Campanhas mudaram - Atualizando planetas...');
+      // Reprocessar planetas com novos dados de campanha
+      const updatedPlanets = allPlanets.map(planet => {
+        const campaignData = campaigns.find(c => 
+          c.name === planet.name || c.planetIndex === planet.index
+        ) || {};
+        
+        return {
+          ...planet,
+          liberationPercentage: campaignData.liberationPercentage || campaignData.percentage || planet.liberationPercentage,
+          defense: campaignData.defense || campaignData.type === 'Defense' || planet.defense,
+          majorOrder: campaignData.majorOrder || planet.majorOrder,
+          players: campaignData.players || planet.players,
+          status: calculatePlanetStatus(planet, { players: planet.players }, campaignData)
+        };
+      });
+      
+      setAllPlanets(updatedPlanets);
+      updatePlanetMeshes(updatedPlanets);
+    }
+  }, [campaigns, allPlanets, updatePlanetMeshes]);
 
   const getFactionColor = (faction) => {
     switch(faction) {
@@ -367,12 +296,18 @@ const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {})
     }
   };
 
+  // Effect principal para inicializar e gerenciar a cena 3D
   useEffect(() => {
     if (!mountRef.current || allPlanets.length === 0) return;
 
-    console.log('🎮 Inicializando Galáxia 3D Avançada...');
+    console.log('🎮 Inicializando/Atualizando Galáxia 3D...');
 
     try {
+      // Se já existe uma cena, limpar primeiro
+      if (rendererRef.current && mountRef.current.contains(rendererRef.current.domElement)) {
+        mountRef.current.removeChild(rendererRef.current.domElement);
+      }
+
       // Controles
       let mouseDown = false;
       let lastMouse = { x: 0, y: 0 };
@@ -383,6 +318,7 @@ const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {})
 
       // Scene
       const scene = new THREE.Scene();
+      sceneRef.current = scene;
       
       // Background estrelado
       const starGeometry = new THREE.BufferGeometry();
@@ -414,7 +350,7 @@ const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {})
       };
       updateCamera();
 
-      // Renderer com melhor qualidade
+      // Renderer
       const renderer = new THREE.WebGLRenderer({ 
         antialias: true,
         alpha: true
@@ -423,40 +359,36 @@ const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {})
       renderer.setClearColor(0x000011, 1);
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      rendererRef.current = renderer;
       mountRef.current.appendChild(renderer.domElement);
 
-      // Iluminação avançada
+      // Iluminação
       const ambientLight = new THREE.AmbientLight(0x404040, 0.3);
       scene.add(ambientLight);
 
       const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
       directionalLight.position.set(50, 50, 50);
       directionalLight.castShadow = true;
-      directionalLight.shadow.mapSize.width = 1024;
-      directionalLight.shadow.mapSize.height = 1024;
       scene.add(directionalLight);
 
       const pointLight = new THREE.PointLight(0x00BFFF, 0.5, 200);
-      pointLight.position.set(0, 0, 0); // Luz da Super Earth
+      pointLight.position.set(0, 0, 0);
       scene.add(pointLight);
 
       // Grupo para planetas
       const planetsGroup = new THREE.Group();
+      planetsGroupRef.current = planetsGroup;
       scene.add(planetsGroup);
 
-      // Criar planetas realistas
+      // Criar planetas
       const planetMeshes = [];
       const textSprites = [];
 
       allPlanets.forEach((planet, index) => {
-        // Tamanho baseado na importância
         const radius = planet.name === "Super Earth" ? 4 : 
                       planet.isActive ? 2 : 1.5;
 
-        // Geometria com mais detalhes
         const geometry = new THREE.SphereGeometry(radius, 32, 32);
-        
-        // Material com cor baseada no bioma
         const material = new THREE.MeshPhongMaterial({
           color: getBiomeColor(planet.biome),
           shininess: planet.biome?.slug === 'ocean' ? 100 : 30,
@@ -470,7 +402,7 @@ const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {})
         mesh.castShadow = true;
         mesh.receiveShadow = true;
 
-        // Atmosfera para planetas maiores
+        // Atmosfera
         if (radius > 2) {
           const atmosphereGeometry = new THREE.SphereGeometry(radius * 1.2, 32, 32);
           const atmosphereMaterial = new THREE.MeshBasicMaterial({
@@ -482,11 +414,11 @@ const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {})
           const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
           atmosphere.position.copy(mesh.position);
           planetsGroup.add(atmosphere);
+          mesh.userData.atmosphere = atmosphere;
         }
 
-        // Indicador de atividade
+        // Anel de atividade
         if (planet.isActive && planet.name !== "Super Earth") {
-          // Anel pulsante
           const ringGeometry = new THREE.TorusGeometry(radius * 1.5, 0.2, 8, 100);
           const ringMaterial = new THREE.MeshBasicMaterial({
             color: getFactionColor(planet.faction),
@@ -497,15 +429,13 @@ const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {})
           ring.position.copy(mesh.position);
           ring.rotation.x = Math.PI / 2;
           planetsGroup.add(ring);
-          
-          // Guardar referência para animação
           mesh.userData.activityRing = ring;
         }
 
-        // Rota para Super Earth (linhas conectoras)
+        // Linhas conectoras
         if (planet.name !== "Super Earth" && planet.isActive) {
           const points = [
-            new THREE.Vector3(0, 0, 0), // Super Earth
+            new THREE.Vector3(0, 0, 0),
             new THREE.Vector3(planet.position.x, planet.position.y, planet.position.z)
           ];
           const lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
@@ -520,37 +450,11 @@ const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {})
 
         planetsGroup.add(mesh);
         planetMeshes.push(mesh);
-
-        // Nome do planeta (sprite de texto)
-        if (showPlanetNames) {
-          const canvas = document.createElement('canvas');
-          const context = canvas.getContext('2d');
-          canvas.width = 256;
-          canvas.height = 64;
-          
-          context.fillStyle = 'rgba(0, 0, 0, 0.8)';
-          context.fillRect(0, 0, canvas.width, canvas.height);
-          
-          context.fillStyle = 'white';
-          context.font = '16px Arial';
-          context.textAlign = 'center';
-          context.fillText(planet.name, canvas.width / 2, canvas.height / 2);
-          
-          const texture = new THREE.CanvasTexture(canvas);
-          const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
-          const sprite = new THREE.Sprite(spriteMaterial);
-          sprite.position.set(
-            planet.position.x,
-            planet.position.y + radius + 2,
-            planet.position.z
-          );
-          sprite.scale.set(8, 2, 1);
-          planetsGroup.add(sprite);
-          textSprites.push(sprite);
-        }
       });
 
-      // Controles de mouse
+      planetMeshesRef.current = planetMeshes;
+
+      // Event handlers
       const onMouseDown = (e) => {
         mouseDown = true;
         lastMouse = { x: e.clientX, y: e.clientY };
@@ -609,32 +513,27 @@ const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {})
       const animate = () => {
         requestAnimationFrame(animate);
 
-        // Auto-rotate
         if (autoRotate) {
           theta += 0.005;
         }
 
-        // Rotação dos planetas
         planetMeshes.forEach((mesh, index) => {
           mesh.rotation.y += 0.01 * (1 + index * 0.001);
           
-          // Animação do anel de atividade
           if (mesh.userData.activityRing) {
             mesh.userData.activityRing.rotation.z += 0.02;
             mesh.userData.activityRing.material.opacity = 0.4 + Math.sin(Date.now() * 0.003) * 0.2;
           }
         });
 
-        // Rotação das estrelas
         stars.rotation.y += 0.0002;
-
         updateCamera();
         renderer.render(scene, camera);
       };
 
       animate();
 
-      // Funções globais
+      // Global functions
       window.galaxyResetCamera = () => {
         theta = 0;
         phi = Math.PI / 4;
@@ -649,10 +548,6 @@ const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {})
         setAutoRotateUI(autoRotate);
       };
 
-      window.galaxyToggleNames = () => {
-        setShowPlanetNames(!showPlanetNames);
-      };
-
       // Cleanup
       return () => {
         renderer.domElement.removeEventListener('mousedown', onMouseDown);
@@ -662,14 +557,16 @@ const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {})
         renderer.domElement.removeEventListener('click', onClick);
         
         if (mountRef.current && renderer.domElement) {
-          mountRef.current.removeChild(renderer.domElement);
+          try {
+            mountRef.current.removeChild(renderer.domElement);
+          } catch (e) {
+            console.log('Renderer já removido');
+          }
         }
         
         renderer.dispose();
-        
         delete window.galaxyResetCamera;
         delete window.galaxyToggleAutoRotate;
-        delete window.galaxyToggleNames;
       };
 
     } catch (err) {
@@ -678,6 +575,7 @@ const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {})
     }
   }, [allPlanets, showPlanetNames]);
 
+  // Funções de controle
   const resetCamera = () => {
     if (window.galaxyResetCamera) window.galaxyResetCamera();
   };
@@ -687,9 +585,10 @@ const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {})
   };
 
   const togglePlanetNames = () => {
-    if (window.galaxyToggleNames) window.galaxyToggleNames();
+    setShowPlanetNames(!showPlanetNames);
   };
 
+  // Funções de UI
   const getStatusColor = (status) => {
     switch(status) {
       case 'safe': return 'text-blue-400';
@@ -725,6 +624,16 @@ const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {})
         </div>
       )}
 
+      {/* Indicador de Atualização */}
+      {isUpdating && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50">
+          <div className="bg-cyan-900/90 border border-cyan-500/50 rounded-lg p-2 flex items-center space-x-2">
+            <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
+            <span className="text-cyan-400 text-sm font-bold">Updating Galaxy Data...</span>
+          </div>
+        </div>
+      )}
+
       {/* Error */}
       {error && (
         <div className="absolute top-4 right-4 z-30 bg-yellow-900/80 border border-yellow-500/50 rounded-lg p-3 max-w-sm">
@@ -748,7 +657,10 @@ const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {})
         <>
           <div className="absolute top-4 left-4 z-10">
             <div className="bg-black/90 backdrop-blur-sm border border-cyan-500/30 rounded-lg p-4 text-white">
-              <h2 className="text-lg font-bold text-cyan-400 mb-3">Galaxy Overview</h2>
+              <h2 className="text-lg font-bold text-cyan-400 mb-3 flex items-center space-x-2">
+                <span>Galaxy Overview</span>
+                {isUpdating && <RefreshCw className="w-4 h-4 animate-spin" />}
+              </h2>
               <div className="space-y-2 text-sm">
                 <div className="flex items-center space-x-2">
                   <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
@@ -789,6 +701,18 @@ const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {})
                   <Eye className="w-4 h-4" />
                   <span>{showPlanetNames ? 'Hide Names' : 'Show Names'}</span>
                 </button>
+
+                {/* Botão para forçar refresh */}
+                <button 
+                  onClick={() => fetchAllPlanets(true)} 
+                  disabled={isUpdating}
+                  className={`flex items-center space-x-2 px-3 py-2 rounded text-sm w-full justify-center ${
+                    isUpdating ? 'bg-gray-600 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-700'
+                  }`}
+                >
+                  <RefreshCw className={`w-4 h-4 ${isUpdating ? 'animate-spin' : ''}`} />
+                  <span>{isUpdating ? 'Updating...' : 'Refresh Data'}</span>
+                </button>
               </div>
             </div>
           </div>
@@ -816,6 +740,7 @@ const calculatePlanetStatus = (planetData = {}, warData = {}, campaignData = {})
                 <p>💫 <strong>Stars:</strong> Background rotation</p>
                 <p>🔗 <strong>Lines:</strong> Active routes</p>
                 <p>💍 <strong>Rings:</strong> Active battles</p>
+                <p className="text-cyan-400">🔄 <strong>Auto-refresh:</strong> 30s intervals</p>
               </div>
             </div>
           </div>
