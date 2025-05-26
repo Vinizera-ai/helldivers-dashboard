@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Activity, Users, Shield, Target, Globe, Zap, AlertTriangle, Award } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Activity, Users, Shield, Target, Globe, Zap, AlertTriangle, Award, RefreshCw } from 'lucide-react';
 import axios from 'axios';
 import GalaxyMap3D from './GalaxyMap3D';
 
@@ -10,53 +10,69 @@ const App = () => {
   const [news, setNews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [showMap, setShowMap] = useState(false);
-  const [isMapFullscreen, setIsMapFullscreen] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshCount, setRefreshCount] = useState(0);
+  
+  // Usar useRef para evitar re-criar o mapa 3D desnecessariamente
+  const mapDataRef = useRef({ campaigns: [], warStatus: null });
 
-  // Função para buscar dados da API
-  const fetchData = async () => {
+  // URL base do nosso backend local
+  const API_BASE = 'http://localhost:5000/api';
+
+  // Função para buscar dados da API com melhor controle
+  const fetchData = useCallback(async (isAutoRefresh = false) => {
     try {
-      setLoading(true);
-      console.log('🚀 Conectando ao servidor local...');
+      if (!isAutoRefresh) {
+        setLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
       
-      // URL base do nosso backend local
-      const API_BASE = 'http://localhost:5000/api';
+      console.log(`🔄 ${isAutoRefresh ? 'Auto-refresh' : 'Manual refresh'} iniciado...`);
       
-      // Buscar dados das campanhas
-      console.log('📡 Buscando campanhas...');
-      const campaignsResponse = await axios.get(`${API_BASE}/war/campaign`);
+      // Buscar todos os dados em paralelo para maior velocidade
+      const [campaignsResponse, statusResponse, ordersResponse, newsResponse] = await Promise.all([
+        axios.get(`${API_BASE}/war/campaign`),
+        axios.get(`${API_BASE}/war/status`),
+        axios.get(`${API_BASE}/war/major-orders`),
+        axios.get(`${API_BASE}/war/news?limit=8`)
+      ]);
+
+      // Processar campanhas
       const campaignsData = campaignsResponse.data.campaigns || [];
       setCampaigns(campaignsData);
-      console.log(`✅ ${campaignsData.length} campanhas encontradas`);
 
-      // Buscar status da guerra
-      console.log('📡 Buscando status da guerra...');
-      const statusResponse = await axios.get(`${API_BASE}/war/status`);
+      // Processar status da guerra
       const statusData = statusResponse.data;
-      
-      setWarStatus({
+      const newWarStatus = {
         warId: statusData.warId,
         time: statusData.time,
         totalPlayers: statusData.metadata.totalPlayers,
         activePlanets: statusData.metadata.activePlanets,
-        lastUpdate: new Date().toLocaleTimeString('pt-BR')
-      });
-      console.log(`✅ Status obtido - ${statusData.metadata.totalPlayers.toLocaleString()} Helldivers ativos`);
+        lastUpdate: new Date().toLocaleTimeString('pt-BR'),
+        planetStatus: statusData.planetStatus || [] // Incluir dados dos planetas
+      };
+      setWarStatus(newWarStatus);
 
-      // Buscar ordens principais
-      console.log('📡 Buscando ordens principais...');
-      const ordersResponse = await axios.get(`${API_BASE}/war/major-orders`);
+      // Processar ordens principais
       setMajorOrders(ordersResponse.data.orders || []);
-      console.log(`✅ ${ordersResponse.data.orders?.length || 0} ordens principais encontradas`);
 
-      // Buscar notícias
-      console.log('📡 Buscando notícias...');
-      const newsResponse = await axios.get(`${API_BASE}/war/news?limit=8`);
+      // Processar notícias
       setNews(newsResponse.data.news || []);
-      console.log(`✅ ${newsResponse.data.news?.length || 0} notícias encontradas`);
+
+      // Atualizar referência para o mapa 3D
+      mapDataRef.current = {
+        campaigns: campaignsData,
+        warStatus: newWarStatus
+      };
 
       setError(null);
-      console.log('🎉 Todos os dados carregados com sucesso!');
+      setLastUpdate(new Date());
+      setRefreshCount(prev => prev + 1);
+      
+      console.log(`✅ ${isAutoRefresh ? 'Auto-refresh' : 'Refresh'} concluído!`);
+      
     } catch (err) {
       console.error('❌ Erro ao buscar dados:', err);
       
@@ -67,24 +83,29 @@ const App = () => {
       } else {
         setError(`Erro de conexão: ${err.message}`);
       }
-      
-      // NÃO usar dados de fallback - queremos apenas dados reais
-      setWarStatus(null);
-      setCampaigns([]);
-      setMajorOrders([]);
-      setNews([]);
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
+  }, [API_BASE]);
+
+  // Refresh manual
+  const handleManualRefresh = () => {
+    fetchData(false);
   };
 
+  // Configurar auto-refresh inteligente
   useEffect(() => {
-    fetchData();
+    // Buscar dados iniciais
+    fetchData(false);
     
-    // Atualizar dados a cada 30 segundos
-    const interval = setInterval(fetchData, 30000);
+    // Auto-refresh a cada 30 segundos (apenas dados, não recarrega página)
+    const interval = setInterval(() => {
+      fetchData(true);
+    }, 30000);
+    
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchData]);
 
   const getFactionColor = (faction) => {
     switch(faction) {
@@ -116,7 +137,7 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 text-white">
-      {/* Header */}
+      {/* Header Melhorado */}
       <div className="bg-black/30 backdrop-blur-sm border-b border-cyan-500/30 p-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center space-x-4">
@@ -127,31 +148,56 @@ const App = () => {
               <h1 className="text-2xl font-bold text-cyan-400">HELLDIVERS 2</h1>
               <div className="flex items-center space-x-2">
                 <p className="text-slate-400">War Command Dashboard</p>
-                <div className={`w-2 h-2 rounded-full ${error ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
+                <div className={`w-2 h-2 rounded-full ${error ? 'bg-yellow-500' : 'bg-green-500'} ${!error ? 'animate-pulse' : ''}`}></div>
                 <span className={`text-xs ${error ? 'text-yellow-400' : 'text-green-400'}`}>
                   {error ? 'Demo Mode' : 'Live Data'}
                 </span>
+                {isRefreshing && (
+                  <div className="flex items-center space-x-1 text-cyan-400">
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                    <span className="text-xs">Updating...</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
+          
           <div className="text-right">
             <p className="text-sm text-slate-400">War ID: {warStatus?.warId}</p>
             <p className="text-lg font-bold text-cyan-400">ACTIVE</p>
-            {warStatus?.lastUpdate && (
-              <p className="text-xs text-slate-500">Last Update: {warStatus.lastUpdate}</p>
+            {lastUpdate && (
+              <p className="text-xs text-slate-500">
+                Last Update: {lastUpdate.toLocaleTimeString('pt-BR')}
+              </p>
             )}
-            <button 
-              onClick={fetchData}
-              disabled={loading}
-              className={`mt-2 px-3 py-1 rounded text-sm transition-colors ${
-                loading 
-                  ? 'bg-gray-600 cursor-not-allowed' 
-                  : 'bg-cyan-600 hover:bg-cyan-700'
-              }`}
-            >
-              {loading ? 'Loading...' : 'Refresh'}
-            </button>
+            <div className="flex space-x-2 mt-2">
+              <button 
+                onClick={handleManualRefresh}
+                disabled={loading || isRefreshing}
+                className={`px-3 py-1 rounded text-sm transition-colors flex items-center space-x-1 ${
+                  loading || isRefreshing
+                    ? 'bg-gray-600 cursor-not-allowed' 
+                    : 'bg-cyan-600 hover:bg-cyan-700'
+                }`}
+              >
+                <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span>{isRefreshing ? 'Updating...' : 'Refresh'}</span>
+              </button>
+              <div className="px-2 py-1 bg-slate-700 rounded text-xs text-slate-400">
+                #{refreshCount}
+              </div>
+            </div>
           </div>
+        </div>
+      </div>
+
+      {/* Indicador de Auto-Refresh */}
+      <div className="bg-green-900/30 border-b border-green-500/30 p-2">
+        <div className="max-w-7xl mx-auto">
+          <p className="text-green-400 text-sm text-center">
+            🔄 Auto-refresh ativo: dados atualizados automaticamente a cada 30 segundos
+            {lastUpdate && ` • Próxima atualização em ${30 - Math.floor((Date.now() - lastUpdate.getTime()) / 1000)}s`}
+          </p>
         </div>
       </div>
 
@@ -172,9 +218,9 @@ const App = () => {
       )}
 
       <div className="max-w-7xl mx-auto p-6 space-y-6">
-        {/* War Stats */}
+        {/* War Stats com Animações */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-gradient-to-br from-cyan-600 to-blue-700 p-6 rounded-xl border border-cyan-500/30">
+          <div className="bg-gradient-to-br from-cyan-600 to-blue-700 p-6 rounded-xl border border-cyan-500/30 transition-all duration-300 hover:scale-105">
             <div className="flex items-center space-x-3">
               <Users className="w-8 h-8" />
               <div>
@@ -184,7 +230,7 @@ const App = () => {
             </div>
           </div>
           
-          <div className="bg-gradient-to-br from-green-600 to-emerald-700 p-6 rounded-xl border border-green-500/30">
+          <div className="bg-gradient-to-br from-green-600 to-emerald-700 p-6 rounded-xl border border-green-500/30 transition-all duration-300 hover:scale-105">
             <div className="flex items-center space-x-3">
               <Globe className="w-8 h-8" />
               <div>
@@ -194,7 +240,7 @@ const App = () => {
             </div>
           </div>
 
-          <div className="bg-gradient-to-br from-yellow-600 to-orange-700 p-6 rounded-xl border border-yellow-500/30">
+          <div className="bg-gradient-to-br from-yellow-600 to-orange-700 p-6 rounded-xl border border-yellow-500/30 transition-all duration-300 hover:scale-105">
             <div className="flex items-center space-x-3">
               <Target className="w-8 h-8" />
               <div>
@@ -204,7 +250,7 @@ const App = () => {
             </div>
           </div>
 
-          <div className="bg-gradient-to-br from-purple-600 to-indigo-700 p-6 rounded-xl border border-purple-500/30">
+          <div className="bg-gradient-to-br from-purple-600 to-indigo-700 p-6 rounded-xl border border-purple-500/30 transition-all duration-300 hover:scale-105">
             <div className="flex items-center space-x-3">
               <Zap className="w-8 h-8" />
               <div>
@@ -248,26 +294,28 @@ const App = () => {
           </div>
         )}
 
-        {/* Active Campaigns */}
+        {/* Mapa 3D Otimizado */}
         <div className="space-y-6">
-          {/* Mapa 3D grande - topo */}
           <div className="space-y-4">
             <h2 className="text-2xl font-bold text-cyan-400 flex items-center space-x-2">
               <Globe className="w-6 h-6" />
               <span>Galaxy War Map</span>
               <span className="text-sm text-slate-400">• Real-time 3D view</span>
+              {isRefreshing && <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" />}
             </h2>
             
             <div className="relative bg-black/50 rounded-xl border border-cyan-500/30 h-[600px] overflow-hidden">
               <GalaxyMap3D 
                 campaigns={campaigns} 
+                warStatus={warStatus}
                 embedded={true}
                 showControls={true}
+                refreshKey={refreshCount} // Força re-render quando dados mudam
               />
             </div>
           </div>
 
-          {/* Campanhas em grid - embaixo */}
+          {/* Campanhas em grid */}
           <div className="space-y-4">
             <h2 className="text-2xl font-bold text-cyan-400 flex items-center space-x-2">
               <Activity className="w-6 h-6" />
@@ -276,7 +324,7 @@ const App = () => {
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 max-h-96 overflow-y-auto">
               {campaigns.map(campaign => (
-                <div key={campaign.planetIndex} className={`bg-gradient-to-br ${getFactionColor(campaign.faction)}/20 p-4 rounded-xl border border-slate-600/30 hover:border-cyan-500/50 transition-all hover:scale-105`}>
+                <div key={campaign.planetIndex} className={`bg-gradient-to-br ${getFactionColor(campaign.faction)}/20 p-4 rounded-xl border border-slate-600/30 hover:border-cyan-500/50 transition-all hover:scale-105 duration-300`}>
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-bold">{campaign.name}</h3>
                     <span className="text-xl">{getFactionIcon(campaign.faction)}</span>
@@ -299,10 +347,10 @@ const App = () => {
                     </div>
                   </div>
 
-                  {/* Progress Bar */}
+                  {/* Progress Bar Animada */}
                   <div className="w-full bg-gray-700 rounded-full h-2 mb-3">
                     <div 
-                      className={`bg-gradient-to-r ${getFactionColor(campaign.faction)} h-2 rounded-full transition-all duration-500`}
+                      className={`bg-gradient-to-r ${getFactionColor(campaign.faction)} h-2 rounded-full transition-all duration-1000`}
                       style={{ width: `${campaign.liberationPercentage || campaign.percentage || 0}%` }}
                     ></div>
                   </div>
@@ -333,7 +381,7 @@ const App = () => {
               {news.map(item => {
                 const timeAgo = Math.floor((Date.now() - item.published) / (1000 * 60 * 60));
                 return (
-                  <div key={item.id} className="p-3 bg-slate-800/50 rounded-lg border-l-4 border-cyan-500">
+                  <div key={item.id} className="p-3 bg-slate-800/50 rounded-lg border-l-4 border-cyan-500 transition-all duration-300 hover:bg-slate-700/50">
                     <p className="text-sm text-slate-300 whitespace-pre-line">{item.message}</p>
                     <p className="text-xs text-slate-500 mt-1">
                       {timeAgo > 0 ? `${timeAgo}h ago` : 'Now'} • ID: {item.published}
@@ -349,4 +397,4 @@ const App = () => {
   );
 };
 
-export default App;  
+export default App;
