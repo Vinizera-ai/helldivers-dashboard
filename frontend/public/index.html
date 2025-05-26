@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <meta
+      name="description"
+      content="Real-time war dashboard for Helldivers 2 - Track galactic campaigns and liberation progress"
+    />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    
+    <!-- Tailwind CSS via CDN for full feature support -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Tailwind Configuration -->
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              // Helldivers theme colors
+              'super-earth': '#00BFFF',
+              'terminid': '#FFA500', 
+              'automaton': '#FF4444',
+              'space': {
+                50: '#f0f9ff',
+                500: '#0ea5e9',
+                900: '#0c4a6e',
+              }
+            },
+            fontFamily: {
+              'mono': ['JetBrains Mono', 'monospace'],
+              'military': ['Orbitron', 'monospace']
+            },
+            animation: {
+              'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'spin-slow': 'spin 8s linear infinite',
+              'bounce-slow': 'bounce 3s infinite',
+              'glow': 'glow 2s ease-in-out infinite alternate',
+            },
+            keyframes: {
+              glow: {
+                '0%': { 
+                  'box-shadow': '0 0 5px #00BFFF, 0 0 10px #00BFFF, 0 0 15px #00BFFF',
+                  'filter': 'brightness(1)'
+                },
+                '100%': { 
+                  'box-shadow': '0 0 10px #00BFFF, 0 0 20px #00BFFF, 0 0 30px #00BFFF',
+                  'filter': 'brightness(1.2)'
+                }
+              }
+            },
+            backgroundImage: {
+              'space-gradient': 'linear-gradient(45deg, #000011 0%, #001122 50%, #000033 100%)',
+              'planet-gradient': 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.8) 0%, transparent 70%)',
+            },
+            boxShadow: {
+              'neon': '0 0 10px currentColor',
+              'neon-lg': '0 0 20px currentColor, 0 0 40px currentColor',
+              'inner-glow': 'inset 0 0 10px rgba(0, 191, 255, 0.3)',
+            },
+            backdropBlur: {
+              'xs': '2px',
+            }
+          }
+        }
+      }
+    </script>
+    
+    <!-- Custom CSS for enhanced visual effects -->
+    <style>
+      /* Loading animations */
+      @keyframes dataStream {
+        0% { transform: translateY(-100%); opacity: 0; }
+        50% { opacity: 1; }
+        100% { transform: translateY(100vh); opacity: 0; }
+      }
+      
+      @keyframes hologram {
+        0%, 100% { opacity: 0.8; }
+        50% { opacity: 1; }
+      }
+      
+      @keyframes scanLine {
+        0% { transform: translateY(-100%); }
+        100% { transform: translateY(100vh); }
+      }
+      
+      /* Custom utility classes */
+      .data-stream {
+        animation: dataStream 3s linear infinite;
+      }
+      
+      .hologram-effect {
+        animation: hologram 2s ease-in-out infinite;
+        text-shadow: 0 0 10px currentColor;
+      }
+      
+      .scan-line {
+        animation: scanLine 3s linear infinite;
+        background: linear-gradient(to bottom, transparent, #00BFFF, transparent);
+        height: 2px;
+        width: 100%;
+      }
+      
+      /* Glass morphism effects */
+      .glass {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
+      
+      .glass-dark {
+        background: rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(0, 191, 255, 0.3);
+      }
+      
+      /* Scrollbar styling */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      
+      ::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 4px;
+      }
+      
+      ::-webkit-scrollbar-thumb {
+        background: linear-gradient(to bottom, #00BFFF, #0080CC);
+        border-radius: 4px;
+      }
+      
+      ::-webkit-scrollbar-thumb:hover {
+        background: linear-gradient(to bottom, #00CCFF, #0099DD);
+      }
+      
+      /* Military/tech font imports */
+      @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
+      
+      /* Text glow effects */
+      .text-glow {
+        text-shadow: 0 0 10px currentColor, 0 0 20px currentColor;
+      }
+      
+      .text-glow-strong {
+        text-shadow: 0 0 5px currentColor, 0 0 10px currentColor, 0 0 15px currentColor, 0 0 20px currentColor;
+      }
+      
+      /* Button hover effects */
+      .btn-hover-glow {
+        transition: all 0.3s ease;
+      }
+      
+      .btn-hover-glow:hover {
+        box-shadow: 0 0 20px currentColor;
+        transform: translateY(-2px);
+      }
+      
+      /* Planet orbit animations */
+      @keyframes orbit {
+        from {
+          transform: rotate(0deg) translateX(100px) rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg) translateX(100px) rotate(-360deg);
+        }
+      }
+      
+      .orbit {
+        animation: orbit 20s linear infinite;
+      }
+      
+      /* Status indicator pulses */
+      .status-pulse {
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+      
+      .status-critical {
+        animation: pulse 1s ease-in-out infinite;
+        color: #ff4444;
+      }
+      
+      .status-active {
+        animation: pulse 2s ease-in-out infinite;
+        color: #ffaa00;
+      }
+      
+      /* Military grid background */
+      .military-grid {
+        background-image: 
+          linear-gradient(rgba(0, 191, 255, 0.1) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(0, 191, 255, 0.1) 1px, transparent 1px);
+        background-size: 20px 20px;
+      }
+      
+      /* 3D perspective for cards */
+      .card-3d {
+        transform-style: preserve-3d;
+        transition: transform 0.3s ease;
+      }
+      
+      .card-3d:hover {
+        transform: rotateY(5deg) rotateX(5deg);
+      }
+    </style>
+    
+    <title>Helldivers 2 - War Dashboard</title>
+  </head>
+  <body class="bg-space-gradient min-h-screen">
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    
+    <!-- Loading screen with enhanced effects -->
+    <div id="initial-loader" class="fixed inset-0 z-50 bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 flex items-center justify-center">
+      <div class="text-center">
+        <div class="relative">
+          <!-- Rotating outer ring -->
+          <div class="w-20 h-20 border-4 border-transparent border-t-cyan-400 border-r-cyan-600 rounded-full animate-spin mx-auto"></div>
+          <!-- Inner pulsing core -->
+          <div class="absolute inset-0 w-12 h-12 m-auto bg-cyan-400 rounded-full animate-pulse opacity-20"></div>
+          <!-- Center icon -->
+          <div class="absolute inset-0 flex items-center justify-center">
+            <svg class="w-8 h-8 text-cyan-400" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd" />
+            </svg>
+          </div>
+        </div>
+        
+        <h1 class="text-2xl font-bold text-cyan-400 mt-6 font-military hologram-effect">HELLDIVERS 2</h1>
+        <p class="text-slate-400 mt-2 font-mono">Establishing Connection to Super Earth Command...</p>
+        
+        <!-- Loading bar -->
+        <div class="w-64 h-1 bg-slate-700 rounded-full mt-4 mx-auto overflow-hidden">
+          <div class="h-full bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full animate-pulse"></div>
+        </div>
+        
+        <!-- Scan line effect -->
+        <div class="scan-line mt-8"></div>
+      </div>
+    </div>
+    
+    <div id="root" class="relative"></div>
+    
+    <!-- Hide loader after page loads -->
+    <script>
+      window.addEventListener('load', function() {
+        setTimeout(function() {
+          const loader = document.getElementById('initial-loader');
+          if (loader) {
+            loader.style.opacity = '0';
+            loader.style.transition = 'opacity 0.5s ease-out';
+            setTimeout(() => loader.remove(), 500);
+          }
+        }, 1500); // Show loader for at least 1.5 seconds
+      });
+    </script>
+  </body>
+</html>
